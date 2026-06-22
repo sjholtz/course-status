@@ -20,7 +20,7 @@ system (LMS).
 This script also relies on the [[https://www.thunderbird.net/][Thunderbird]] email client with the [[https://services.addons.thunderbird.net/az/thunderbird/addon/mail-merge/][Mail
 Merge]] add on installed.
 
-This script also requires [[*Canvas Item Codes]] to be implemented. See below.
+This script also requires [[#canvas-item-codes][Canvas Item Codes]] to be implemented. See below.
 
 ** Canvas Item Codes
 
@@ -77,7 +77,7 @@ An example set of item titles and their codes:
 You can see how these codes ease communication about any given item in
 the course. A student can email with a question or problem they
 experienced with “Q5c” and it is easy to see that this is the
-3<sup>rd</sup> quiz in Module 5.
+3^{rd} quiz in Module 5.
 
 *In order to use this script*, these codes are required in the titles
 of all items in your course as they are used to recognize the type of
@@ -129,13 +129,13 @@ that you are teaching. These variables must be set to correct values:
 Please note that several of the date and time related values are
 stored using either =datetime= or =timedelta= objects. Only edit the
 arguments to these function calls. For example, a =datetime= object is
-built using src_python[:exports code]{datetime(YYYY, MM, DD)} where
-=YYYY=is a 4-digit year, =MM= is a 1 or 2-digit month, and =DD= is a 1
+built using =datetime(YYYY, MM, DD)= where
+=YYYY= is a 4-digit year, =MM= is a 1 or 2-digit month, and =DD= is a 1
 or 2-digit day of the month. And the =timedelta= function requires a
 keyword indicating what the numeric value means, so
-src_python[:exports code]{timedelta(hours=17)} for 5:00 PM,
-src_python[:exports code]{timedelta(weeks=2)} for 2 weeks,
-or src_python[:exports code]{timedelta(days=3)} for 3 days.
+=timedelta(hours=17)= for 5:00 PM,
+=timedelta(weeks=2)= for 2 weeks,
+or =timedelta(days=3)= for 3 days.
 
 Finally, the =quiz_due_day_of_week= and =assignment_due_day_of_week=
 variables each take a 2-character day code that are defined in the
@@ -158,7 +158,7 @@ emails to the class.
 
 You are free to alter this script and the email template to fit your needs.
 
-See the `mail-merge` add on Web page above for details in its use.
+See the Mail Merge add on Web page above for details in its use.
 
 ** Getting the Required Input Data
 
@@ -182,10 +182,8 @@ path that’s in the =base_path= variable that you configured in the
 script. This =base_path= subfolder must have a name that is a
 lowercased =course_prefix= joined to the =course_number=.
 
-For example, if I have the variables src_python[:exports
-code]{base_path = "~/Private/grades"}, src_python[:exports
-code]{course_prefix = "CS"} and src_python[:exports
-code]{course_number = ["1151", "1411"]}, then the files for the
+For example, if I have the variables =base_path = "~/Private/grades"=,
+=course_prefix = "CS"= and =course_number = ["1151", "1411"]=, then the files for the
 =CS1151= course must be stored in the =~/Private/grades/cs1151/=
 folder, and the files for the =CS1411= course in the
 =~/Private/grades/cs1411/= folder. Note the lowercased =course_prefix=
@@ -194,8 +192,10 @@ in the output.
 **** Getting the Files
 
 The gradebook CSV file is downloaded from the Canvas gradebook for the
-course. From the Canvas course homepage, click “Grades.” Then click
-“Export” and “Export Entire Gradebook” in the drop-down.
+course. From the Canvas course homepage:
+1. Click “Grades”
+2. Click “Export”, and
+3. Click “Export Entire Gradebook” in the drop-down.
 
 The missing assignments report is downloaded by:
 1. Going to the Canvas course homepage
