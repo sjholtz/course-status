@@ -1,0 +1,346 @@
+#+title: Course Status
+#+author: Steven J Holtz
+
+#+options: num:nil toc:nil
+
+#+html_head: <style>table tr:nth-child(even){background-color:#f2f2f2;}table,th,td{border:1px solid black;}th,td{padding: 5px;}</style>
+
+This Python script was used internally by myself to automate a task
+that was taking a lot of my time: Sending out individualized status
+report emails to all of the students in my online courses.
+
+Note that a student’s “status” is either
+- “You are up-to-date.”
+- “You are behind. You’re currently =<there>= and you should be =<here>=.”
+- Or “You have done no work yet; PLEASE GET STARTED.”
+
+My courses were all hosted online on the [[https://www.instructure.com/canvas][Canvas]] learning management
+system (LMS).
+
+This script also relies on the [[https://www.thunderbird.net/][Thunderbird]] email client with the [[https://services.addons.thunderbird.net/az/thunderbird/addon/mail-merge/][Mail
+Merge]] add on installed.
+
+This script also requires [[*Canvas Item Codes]] to be implemented. See below.
+
+** Canvas Item Codes
+
+When I started teaching in Canvas, communicating about any particular
+item (slide presentation, lecture video, quiz, or assignment) was
+tedious. Each item had a title, and that was to only obvious thing to
+use to reference that item.
+
+In order to ease communication, I created short unique codes for every
+item and placed each item’s code in its title. That way an item could
+be uniquely communicated about by using this short (3 characters or
+less) code.
+
+The content of each of my courses was divided in modules. Each module
+had a series of slideshows, lecture videos covering those slides, a
+short quiz covering that content, and a final programming assignment
+to assess student learning of this module’s content.
+
+Here are details of the coding system that I use.
+
+The first character in an item’s code is the type of this item:
+
+| Content Type | Code Use |
+|--------------+----------|
+| Slides       | =S=      |
+| Video        | =V=      |
+| Quiz         | =Q=      |
+| Assignment   | =A=      |
+
+The second character in each code is the module number: 1 though
+however many modules there are in this course.
+
+The third character in each code is only used when there are multiple
+items of the same type in the same module. This character is an =a=
+for the first item of this type, =b=, for the second item, etc.
+
+Finally, since I taught multiple course, each item’s title started
+with the course’s designator and number.
+
+An example set of item titles and their codes:
+
+| Example Item Title         | Code Meaning                     |
+|----------------------------+----------------------------------|
+| =CS1234 S1a: First Slides= | First slideshow in Module 1      |
+| =CS1234 V1a: First Video=  | First lecture video in Module 1  |
+| =CS1234 Q1a: First Quiz=   | First quiz in Module 1           |
+| =CS1234 S1b: Topic 2=      | Second slideshow in Module 1     |
+| =CS1234 V1b: Topic 2=      | Second lecture video in Module 1 |
+| =CS1234 Q1b: Topic 2=      | Second quiz in Module 1          |
+| =CS1234 A1: Code This=     | The only assignment in Module 1  |
+| =CS1234 Q2a: Topic=        | First quiz in Module 2           |
+| =CS1234 A2: More Coding=   | The only assigment in Module 2   |
+
+You can see how these codes ease communication about any given item in
+the course. A student can email with a question or problem they
+experienced with “Q5c” and it is easy to see that this is the
+3<sup>rd</sup> quiz in Module 5.
+
+*In order to use this script*, these codes are required in the titles
+of all items in your course as they are used to recognize the type of
+each assessment from the Canvas comma-separated values (CSV) files,
+which do not otherwise have a field to indicate this.
+
+** Thunderbird Mail Merge Add On
+
+Install and configure [[https://www.thunderbird.net/download/][Thunderbird]] as your email client, if you do not
+have it installed and set up already.
+
+In Thunderbird, installed the [[https://services.addons.thunderbird.net/az/thunderbird/addon/mail-merge/][Mail Merge]] add on. This tool supports
+the use of an email template to send a mass email from a CSV file.
+
+** Required Set-up
+
+*** Canvas
+
+In the Canvas learning management system (LMS), every item must have
+an item code in its title (as outlined above) so that this software
+can find and categorize them. The system currently recognizes only
+quiz and assignment-type assessments, with codes starting with =Q= and
+=A=, respectively. The quizzes and assignments in my courses make up
+the assessments that will result in a course grade and are the basis
+for a status report.
+
+*** The =courseStatus.py= Script
+
+In the top section of the script, there are several variables with
+values that must be edited for the current semester and the course(s)
+that you are teaching. These variables must be set to correct values:
+
+
+| Variable                       | What It Does                                                                                   |
+|--------------------------------+------------------------------------------------------------------------------------------------|
+| =course_prefix=                | Departmental designator                                                                         |
+| =course_numbers=               | Numbers for the courses you’re teaching                                                        |
+| =first_assess_code=            | The code associated with the first assessment in Canvas                                        |
+| =number_of_modules=            | The number of modules in your courses                                                          |
+| =course_dates=                 | The start and end dates for the current semester                                               |
+| =exclude_dates=                | Dates to exclude from “regular” class                                                          |
+| =due_time=                     | The hour that assessments are due                                                              |
+| =quiz_due_day_of_week=         | Day of the week that quizzes are due                                                           |
+| =assignment_due_day_of_week=   | Day of the week that assignments are due                                                       |
+| =too_late_offset=              | Time span after an assessment’s due date where the assessment can be completed for late credit |
+| =resubmission_deadline_offset= | Time span after an assignment’s due date where that assignment can be resubmitted              |
+| =base_path=                    | The path to where student grade-related files are stored                                       |
+
+Please note that several of the date and time related values are
+stored using either =datetime= or =timedelta= objects. Only edit the
+arguments to these function calls. For example, a =datetime= object is
+built using src_python[:exports code]{datetime(YYYY, MM, DD)} where
+=YYYY=is a 4-digit year, =MM= is a 1 or 2-digit month, and =DD= is a 1
+or 2-digit day of the month. And the =timedelta= function requires a
+keyword indicating what the numeric value means, so
+src_python[:exports code]{timedelta(hours=17)} for 5:00 PM,
+src_python[:exports code]{timedelta(weeks=2)} for 2 weeks,
+or src_python[:exports code]{timedelta(days=3)} for 3 days.
+
+Finally, the =quiz_due_day_of_week= and =assignment_due_day_of_week=
+variables each take a 2-character day code that are defined in the
+=dateutil.rrule= package. See the codes that you can use in the import
+statement near the top of the file.
+
+The =to_csv= variable initially contains the field names that will be
+used in the Mail Merge email templates. If you change any of the names
+here, you must also change that name in the email template used.
+
+*** Thunderbird Example Templates
+
+The supplied =email-template-to-field.txt=,
+=email-template-subject.txt=, and =email-template-body.html= files
+provide an example templates for the To:, Subject: and Body fields for
+an email template to be used with the output generated by the
+=courseStatus.py= script provided. I suggest saving the email as a
+template so that it can be easily reused to send updated status report
+emails to the class.
+
+You are free to alter this script and the email template to fit your needs.
+
+See the `mail-merge` add on Web page above for details in its use.
+
+** Getting the Required Input Data
+
+*** Canvas
+
+There are two CSV files that must be obtained from a Canvas course
+before you can execute the script for that course:
+1. The current gradebook
+2. The current missing assignment report
+
+It is important to download fresh copies of both of these files just
+before executing the script:
+1. The files must have the must up-to-date information
+2. Both files must have the same month/day string embedded in their
+   filenames
+
+**** Where to Store These Files
+
+Be sure that you save both of these files in a course subfolder of the
+path that’s in the =base_path= variable that you configured in the
+script. This =base_path= subfolder must have a name that is a
+lowercased =course_prefix= joined to the =course_number=.
+
+For example, if I have the variables src_python[:exports
+code]{base_path = "~/Private/grades"}, src_python[:exports
+code]{course_prefix = "CS"} and src_python[:exports
+code]{course_number = ["1151", "1411"]}, then the files for the
+=CS1151= course must be stored in the =~/Private/grades/cs1151/=
+folder, and the files for the =CS1411= course in the
+=~/Private/grades/cs1411/= folder. Note the lowercased =course_prefix=
+in the output.
+
+**** Getting the Files
+
+The gradebook CSV file is downloaded from the Canvas gradebook for the
+course. From the Canvas course homepage, click “Grades.” Then click
+“Export” and “Export Entire Gradebook” in the drop-down.
+
+The missing assignments report is downloaded by:
+1. Going to the Canvas course homepage
+2. Click “Course Analytics” in the right column
+3. Click the “Reports” tab
+4. Click the “Run Report” button on the right end of the “Missing
+   Assignments” row
+5. Alter the default filename before you save it:
+   - Replace the space with a hyphen
+   - Make sure that the month and day has two digits each: Add a
+     leading zero if necessary
+
+The default filename for the missing assignments report CSV file of
+=missingAssignments 6-3-2026.csv= should be altered to
+=missingAssignments-06-03-2026.csv=.
+
+** Example Script Execution
+
+When a value appears inside of square brackets in a prompt, it is the
+default value that the system will use if you do not supply any
+input. Please note: No input; Not even a space.
+
+1. Open a command prompt
+2. Execute =$ python3 courseStatus.py=
+3. You will be prompted for the course by a single-digit number:
+
+   #+begin_example
+   What course:
+   	0) CS1151
+   	1) CS1411
+   Choice [0]: 
+   #+end_example
+
+   In the example above, by not entering any value, I’ve selected the
+   =CS1151= course via the default choice of =0= (zero).
+
+4. Then you must verify, or correct, the current module number that
+   students are working in. The system will guess at the module number
+   and present it as a default value.
+
+   #+begin_example
+   Current module students are working in [12]? 
+   #+end_example
+
+   The lack of input verifies that the default value of =12= is
+   correct.
+
+5. Then verify, or correct, the month/day of the input CSV files. This
+   will default to the today’s month/day. Please note the required use
+   2-digit month and day separated by a single hyphen.
+
+   #+begin_example
+   Enter the month-day in missing assessments and grades files [06-19]: 
+   #+end_example
+
+   Again, the lack of any input verifies that the default value of
+   =06-19= is correct.
+
+6. Then, you’ll be asked if you want to include a midterm alert
+   message. Saying “Yes” will cause an additional paragraph to display
+   in the email sent to students. See the =email-template-body.html=
+   file and the content protected by the ={{MidtermAlert|==|1|...|}}=
+   field. It is this content that will display if you select “Yes”
+   here.
+
+   #+begin_example
+   Include midterm alert message (Y)es|(N)o [N]? 
+   #+end_example
+
+   Note that the script will correctly handle either upper or lower
+   case input to these “(Y)es|(N)o” questions.
+
+   The lack of input selects no midterm alert message.
+
+7. Then the system will verify the CSV files that it has found to
+   process with you.
+
+   #+begin_example
+   Files will be processed from: ~/Private/grades/cs1151
+   	Grade data:              ~/Private/grades/cs1151/2026-06-19T1652_Grades-CS_1151_(001).csv
+   	Missing assignment data: ~/Private/grades/cs1151/missingAssignments-06-19-2026.csv
+
+   Is everything correct (Y)es|(N)o  [Y]? 
+   #+end_example
+
+   If either of these files are not present, then the system will stop
+   here with a message stating what could not be found. You’ll need to
+   go back and fix things and start over gain.
+
+   Since both of the required input CSV files were found in this case,
+   the system is checking that these are the correct files. You should
+   take a moment to verify the correctness of the files.
+
+   If you enter =N= or =n= the system will exit without doing anything
+   further. You can fix the problem(s) you found and restart the
+   process.
+
+   Else hit =<Enter>= to proceed.
+
+   If everything goes correctly, the system will respond with:
+
+   #+begin_example
+   All Done! Have a great day!
+   #+end_example
+
+   and you’ll find a new file in the =~/Private/grades/cs1151/=
+   folder: =status-2026-06-19.csv=. This file can be used as input to
+   the Thunderbird Mail Merge add on.
+
+** Sending the Mass Mailing
+
+With the Mail Merge add on installed, you’ll see a new “Mail Merge”
+button on the upper-right side of the toolbar in emails that you are
+sending. Clicking on this button will open the “Mail Merge” dialog.
+
+In the “Mail Merge” dialog:
+1. Change the “Source:” drop-down at the top to “CSV”.
+2. Click the “Browse” button and use the file dialog box to select the
+   =status-??-??-????.csv= file that you generated with the
+   =courseStatus= script.
+3. The rest of the Mail Merge dialog can be left with default
+   values.
+4. Click the “Send” button to start the process of generating emails
+   to each student. Note that this step does not send any messages
+   yet.
+5. The dialog changes to a “Send” dialog which will generate the
+   emails. Click the “Start” button. Note that the messages are
+   generated in this step and stored in the “Local Folders” =->=
+   “Outbox”, so the messages still are not sent.
+6. Click the “Local Folders” =->= “Outbox” folder, which holds the
+   messages. Preview several/many/all of them.
+7. If they need to be fixed, select all of the messages in “Outbox”
+   and hit the =<Delete>= key.
+8. Else, if all looks good, right-click on “Outbox” folder in the
+   “Folder Pane” (usually on the left) and select “Send Unsent
+   Messages” from the pop-up menu.
+
+** Time Impact
+
+Before implementing this script, I was spending about 2 hours per
+course to send out a status email. And sending out emails once every 3
+weeks as I didn’t have enough time.
+
+With this script, I can send out a status emailing for each course in
+about 10 minutes. And I’m sending out status emails once a week with
+no problem.
+
+This script provided me with a 90% plus savings in time.
