@@ -34,7 +34,7 @@ course_dates = [datetime(2026, 1, 14), datetime(2026, 5, 1)]
 # Dates to exclude, like Holidays and Spring Break:
 exclude_dates = [
     datetime(2026, 1, 19),  # MLK day
-    datetime(2026, 3, 9),  # Spring Break Monday
+    datetime(2026, 3, 9),   # Spring Break Monday
     datetime(2026, 3, 10),  # Spring Break Tuesday
     datetime(2026, 3, 11),  # Spring Break Wednesday
     datetime(2026, 3, 12),  # Spring Break Thursday
