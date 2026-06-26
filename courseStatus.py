@@ -1,17 +1,41 @@
 #!/usr/bin/env python3
 # -*- mode: python; coding: utf-8 -*-
 
-# courseStatus takes the most recent Canvas CSV grades and missing
-# assignments report files and generates a CSV file used as input to
-# the Thunderbird mail-merge addon. (https://addons.thunderbird.net/addon/mail-merge/).
+"""courseStatus.py
+
+Processes the most recent Canvas LMS gradebook and missing assignments
+report CSV files into a CSV file used as input to the Thunderbird Mail
+Merge add on. (https://addons.thunderbird.net/addon/mail-merge/).
+
+DEPENDENCIES:
+ - Standard Libraries: sys, csv, datetime, calendar, pathlib, operator
+ - Third-Party Packages: dateutil
+
+CONFIGURATION:
+ Hardcoded "configuration" data located at the head of this script
+ must be updated each semester prior to execution, including:
+ - course_numbers: Identifiers for the active courses (e.g., ["1151",
+   "1411"])
+ - course_dates: Start and end dates for the current semester
+ - exclude_dates: Explicit date exceptions (e.g., Spring Break,
+   observed holidays)
+
+USAGE EXAMPLES:
+  $ python3 courseStatus.py
+
+AUTHOR: Steven J Holtz
+LAST MODIFIED: 2026-06-26
+
+"""
 
 import sys
 import csv
 from datetime import datetime, timedelta
-from dateutil.rrule import rrule, rruleset, MO, TU, WE, TH, FR, SA, SU, WEEKLY
 from calendar import isleap
 from operator import itemgetter as iGetter
 import pathlib
+
+from dateutil.rrule import rrule, rruleset, MO, TU, WE, TH, FR, SA, SU, WEEKLY
 
 # #########################
 # Data that needs to be configured for each semester:
