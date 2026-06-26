@@ -1,0 +1,76 @@
+#+title: Course Status: TODO List
+#+author: Steven J Holtz
+
+#+options: num:nil toc:nil
+
+* DONE [#A] Refactor courseStatus.py replacing interactive prompts with argparse
+CLOSED: [2026-06-26 Fri 17:38]
+
+Support script use in automated (cron-type) environment.
+
+* DONE [#A] Refactor courseStatus.py wrap code in main function and implement an if name == "main" guard
+CLOSED: [2026-06-26 Fri 17:38]
+
+Restructure code to be used as a package or a script.
+
+* TODO [#A] Refactor courseStatus.py by modularizing code using functions
+
+Gain the advantages of having modularized code. Easier: reading,
+debugging, support unit testing, etc.
+
+* TODO [#A] Refactor courseStatus.py replacing print-based output with logging
+
+Add support for the use of log-levels and saving logs to a file.
+
+* TODO [#A] Refactor courseStatus.py changing from csv.reader to csv.DictReader
+
+Make CSV processing more robust by using column headers instead of
+brittle indexes.
+
+* TODO [#A] Refactor courseStatus.py replacing brittle substring matching on month-day string
+
+Use of regular expressions will allow handling of spaces and single
+digit month and/or day in filenames.
+
+* TODO [#A] Refactor courseStatus.py to use configparse to handle configuration values
+
+Use configparse and a config.ini file to move static configuration
+data out of the source.
+
+* TODO [#A] Add unit testing
+
+Each function should be tested using pytest and testing routines in a
+separate tests/ directory.
+
+* TODO [#A] Add GitHub Actions pytest runs
+
+Run the tests on push and pull requests.
+
+* TODO [#A] Add GitHub Actions black formatter
+
+Keep code consistently formatted by running black on push and pull
+requests.
+
+* TODO [#A] Refactor courseStatus.py adding type annotations
+
+* TODO [#A] Add GitHub Actions mypy static type checker
+
+Make code more robust by static type checking the code and its type
+annotations.
+
+* TODO [#A] Refactor courseStatus.py to use utf-8 when writing to CSV files
+
+Make sure files' character data is formatted properly for input to
+other software.
+
+* TODO [#A] Refactor courseStatus.py remove years from config.ini and use today's year
+
+Make configuration easier for user - calculate *everything* that you can.
+
+* TODO [#A] Rework README.org to better reflect the app's requirements and functionality
+
+Possible structure
+- The Problem: Explain 2-hour manual process
+- The Solution: Explain how this code reduces time to 10 minutes
+- How to Run it: Provide quick setup instructions (environment and
+  required modules)
