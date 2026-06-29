@@ -35,6 +35,7 @@ from dateutil.rrule import rrule, rruleset, MO, TU, WE, TH, FR, SA, SU, WEEKLY
 
 # #########################
 # Load configuration:
+# #########################
 
 config = configparser.ConfigParser()
 
@@ -49,25 +50,63 @@ if not config.read("config.ini"):
 # Constants and maps used in configuration processing
 CURRENT_YEAR = datetime.now().year
 
-DAY_MAP = {
-    "Monday": MO,
-    "Tuesday": TU,
-    "Wednesday": WE,
-    "Thursday": TH,
-    "Friday": FR,
-    "Saturday": SA,
-    "Sunday": SU,
-}
 
-
-# Utility function to process MM-DD strings into datetime objects
 def parse_mm_dd(date_str):
+    """Form `datetime` object.
+
+    Assumes that `date_str` is a string of the form "MM-DD".
+
+    Convert `date_str` into a `datetime` object, using the global
+    constant `CURRENT_YEAR` for the year.
+
+    Any `ValueError` exceptions generated result in an error message
+    and the program exiting, as this is an unrecoverable error without
+    getting a replacement string from the user....
+    """
     try:
         dt = datetime.strptime(f"{CURRENT_YEAR}-{date_str.strip()}", "%Y-%m-%d")
     except ValueError as e:
         print(f"ERROR: In config.ini reading '{date_str}' string: {e}", file=sys.stderr)
         sys.exit(1)
     return dt
+
+
+def convert_day_str_to_rrule(day_str):
+    """Map string to dateutil.rrule.weekday.
+
+    Input:
+    - `day_str` the sting to map
+
+    Return the `dateutil.rrule.weekday` associated with `day_str`,
+    where `day_str` can be a prefix to any day. If the `day_str`
+    prefix is ambiguous, like "T" (Tuesday or Thursday?) or "S"
+    (Saturday or Sunday?) then raise a ValueError.
+    """
+    DAY_MAP = {
+        "Monday": MO,
+        "Tuesday": TU,
+        "Wednesday": WE,
+        "Thursday": TH,
+        "Friday": FR,
+        "Saturday": SA,
+        "Sunday": SU,
+    }
+
+    the_key = None
+
+    for key in DAY_MAP:
+        if key.lower().startswith(day_str.lower()):
+            if the_key:
+                the_key = None
+            else:
+                the_key = DAY_MAP[key]
+            # Need to keep iterating to see if 'day' is a prefix to
+            # another key, like day == 'T' or 'S' would.
+
+    if not the_key:
+        raise ValueError("Illegal or insufficient due day")
+
+    return the_key
 
 
 # Process "Course" section of config
@@ -112,16 +151,20 @@ except ValueError as e:
 
 # Day of the week that quizzes and assignments are due on:
 try:
-    QUIZ_DUE_DAY_OF_WEEK = DAY_MAP[config.get("Course", "Quiz Due Day").strip()]
-except KeyError as e:
+    QUIZ_DUE_DAY_OF_WEEK = convert_day_str_to_rrule(
+        config.get("Course",
+                   "Quiz Due Day").strip()
+    )
+except ValueError as e:
     print(f"ERROR: In config.ini reading 'Quiz Due Day': {e}", file=sys.stderr)
     sys.exit(1)
 
 try:
-    ASSIGNMENT_DUE_DAY_OF_WEEK = DAY_MAP[
-        config.get("Course", "Assignment Due Day").strip()
-    ]
-except KeyError as e:
+    ASSIGNMENT_DUE_DAY_OF_WEEK = convert_day_str_to_rrule(
+        config.get("Course",
+                   "Assignment Due Day").strip()
+    )
+except ValueError as e:
     print(f"ERROR: In config.ini reading 'Assignment Due Day': {e}", file=sys.stderr)
     sys.exit(1)
 
@@ -152,21 +195,22 @@ DEFAULT_BASE_PATH = config.get("Course", "Base Path")
 
 # Data that needs configured to match the mass email template
 # associated with the Thunderbird mail-merge addon:
-to_csv = [
-    [
-        h.strip()
-        for h in config.get("Mail Merge", "Headers").strip().splitlines()
-        if h.strip()
-    ]
+BASE_CSV_HEADERS = [
+    h.strip()
+    for h in config.get("Mail Merge", "Headers").strip().splitlines()
+    if h.strip()
 ]
 
 # Output format for dates in email:
 DATE_FORMAT = config.get("Mail Merge", "Date Format")
 
 # #########################
+# Helper Functions
+# #########################
 
 
 def parse_args():
+    """Parse command line arguments and return them."""
     parser = argparse.ArgumentParser(
         description="Process Canvas LMS CSV files for input into "
         + "Thunderbird Mail Merge."
@@ -212,10 +256,13 @@ def parse_args():
     return parser.parse_args()
 
 
-def main():
-    args = parse_args()
+def generate_due_dates():
+    """Calculate due dates and times for all quizzes and assignments.
 
-    # Collect due dates and times for all quizzes and assignments:
+    Return: A tuple of lists:
+    0. The grades data
+    1. The missing assignments data
+    """
     quiz_rule_set = rruleset()
     assignment_rule_set = rruleset()
 
@@ -243,18 +290,19 @@ def main():
         quiz_rule_set.exdate(a_date + DUE_TIME)
         assignment_rule_set.exdate(a_date + DUE_TIME)
 
-    quiz_due_dates = list(quiz_rule_set)
-    assignment_due_dates = list(assignment_rule_set)
+    return list(quiz_rule_set), list(assignment_rule_set)
 
-    today_date = datetime.now()
 
-    # Calculate default month-day string
-    month_day_str = args.date if args.date else today_date.strftime("%m-%d")
+def setup_base_path(course_number, base_path_arg):
+    """Resolve and validate the base path directory.
 
-    # Setup Paths
-    course = args.course
-    base_path = pathlib.Path(args.base_path).expanduser()
-    base_path /= COURSE_PREFIX.lower() + str(course)
+    Return the `Path` object to read from and write to.
+
+    Test if the path exists. If it does not exist, provide a message
+    to the user and terminate.
+    """
+    base_path = pathlib.Path(base_path_arg).expanduser()
+    base_path /= COURSE_PREFIX.lower() + str(course_number)
 
     if not base_path.exists():
         print(
@@ -263,14 +311,32 @@ def main():
         )
         sys.exit(1)
 
-    # Calculate current module based on the current week:
-    if COURSE_DATES[0].weekday() != 0:  # Not Monday
-        start_date = COURSE_DATES[0] - timedelta(days=COURSE_DATES[0].weekday())
-    else:
-        start_date = COURSE_DATES[0]
+    return base_path
 
-    week_number = (today_date - start_date).days // 7
-    current_module = args.module if args.module else week_number
+
+def calculate_current_module(module_arg, today_date):
+    """Calculate current module number.
+
+    Return value is the module_arg inputor it is calculated from the
+    number of weeks (starting on Monday) that have passed until today.
+
+    If the module number given or calculated is out-of-range, issue a
+    warning to the user.
+    """
+    if module_arg:
+        current_module = module_arg
+    else:
+        first_day_of_class = COURSE_DATES[0]
+
+        if first_day_of_class.weekday() != 0:  # Not Monday
+            # Set start_day to Monday of that first week of class
+            start_date = first_day_of_class - timedelta(days=first_day_of_class.weekday())
+        else:
+            start_date = course_start_day
+
+        # How many Mondays have passed between today and the start
+        # day?
+        current_module = (today_date - start_date).days // 7
 
     if not (1 <= current_module <= NUMBER_OF_MODULES):
         print(
@@ -278,11 +344,30 @@ def main():
             file=sys.stderr,
         )
 
-    # Date calculations
+    return current_module
+
+
+def format_as_of_date(date_arg, today_date):
+    """Generate required string formats for needed dates.
+
+    Input:
+    - `date_arg` comes from the command line. It is either not set, or
+      it must be of the form "MM-DD"
+    - `today_date` is a `datetime` object holding today’s date
+
+    This routine returns 2 related values in a tuple:
+    0. The "MM-DD" string in `date_str` or `today_date` as a 2-digit
+       "MM-DD" string
+    1. The "MM-DD-YYYY" string with 1- or 2-digit month and day
+       generated from both the `month_day_str` and `today_date.year`
+
+    If the "MM-DD-YYYY" `datetime` object is invalid, then the user
+    receives an error message and the program terminates.
+    """
+    month_day_str = date_arg if date_arg else today_date.strftime("%m-%d")
+
     try:
-        as_of_date = datetime.strptime(
-            month_day_str + "-" + str(today_date.year), "%m-%d-%Y"
-        )
+        as_of_date = datetime.strptime(f"{month_day_str}-{today_date.year}", "%m-%d-%Y")
     except ValueError:
         print(
             f"ERROR: Invalid date format provided '{month_day_str}'. Must be MM-DD.",
@@ -290,105 +375,171 @@ def main():
         )
         sys.exit(1)
 
-    as_of_date_str = as_of_date.strftime("%-m/%-d/%Y")
-    midterm_alert = 1 if args.midterm else 0
+    return month_day_str, as_of_date.strftime("%-m/%-d/%Y")
 
-    print(f"Files will be processed from: {base_path}")
 
-    grades_path_filename = ""
-    missing_work_path_filename = ""
+def locate_input_files(base_path, month_day_str):
+    """Finds the filenames of grades and missing assignments files.
+
+    Input:
+    - `base_path` is the `Path` object holding the path to the
+      directory where all files are read from
+    - `month_day_str` is the "MM-DD" string that must be in both the
+      grades and the missing assignments filename
+
+    Returns a tuple containing:
+    0. A `Path` object to the "grades" file
+    1. A `Path` object to the "missing assignments" file
+
+    If either file cannot be found, the user is issued an error
+    message and the program terminates.
+    """
+    grades_file, missing_work_file = None, None
 
     for filename in base_path.iterdir():
-        name = filename.name
-        ext = filename.suffix
+        name, ext = filename.name, filename.suffix
+
         if (
-            grades_path_filename == ""
+            not grades_file
             and "Grades" in name
             and month_day_str in name
             and ext == ".csv"
         ):
-            grades_path_filename = filename
-            print(f"\tGrade data:              {grades_path_filename}")
-            continue
-        if (
-            missing_work_path_filename == ""
+            grades_file = filename
+            print(f"\tGrade data:              {grades_file}")
+        elif (
+            not missing_work_file
             and month_day_str in name
             and ext == ".csv"
             and str(name).startswith("missingAssignments")
         ):
-            missing_work_path_filename = filename
-            print(f"\tMissing assignment data: {missing_work_path_filename}")
-            continue
-        if grades_path_filename != "" and missing_work_path_filename != "":
-            break
+            missing_work_file = filename
+            print(f"\tMissing assignment data: {missing_work_file}")
 
-    if grades_path_filename == "" or missing_work_path_filename == "":
+    if not grades_file or not missing_work_file:
         print(
             "ERROR: Could not locate both grades and missing assignments files for the specified date.",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    # Process missing work
-    missing_work_data = []
+    return grades_file, missing_work_file
+
+
+def read_csv_file(file_path, skip_rows=0):
+    """Read a CSV file.
+
+    Input:
+    - `file_path` is a `Path` object to the CSV file to read
+    - `skip_rows` is the number of header lines to skip over
+
+    Return the data read in as a list of lists.
+    """
+    data = []
     try:
-        with missing_work_path_filename.open() as f:
+        with file_path.open() as f:
             freader = csv.reader(f)
-            next(freader)
+            for _ in range(skip_rows):
+                next(freader)
             for row in freader:
-                missing_work_data.append(list(row))
+                data.append(list(row))
     except IOError as e:
-        print(f"{e.strerror}: {missing_work_path_filename}", file=sys.stderr)
+        print(f"{e.strerror}: {file_path}", file=sys.stderr)
         sys.exit(1)
 
-    missing_work_data.sort(key=iGetter(0))
+    return data
 
-    # Process grades
-    grades_data = []
-    try:
-        with grades_path_filename.open() as f:
-            freader = csv.reader(f)
-            next(freader)
-            next(freader)
-            for row in freader:
-                grades_data.append(list(row))
-    except IOError as e:
-        print(f"{e.strerror}: {grades_path_filename}", file=sys.stderr)
-        sys.exit(1)
 
-    # Deadline calculations
-    next_quiz_too_late = -1
-    next_quiz_too_late_date = -1
+def calculate_deadlines(today_date, quiz_due_dates, assignment_due_dates):
+    """Find deadlines for assessments.
+
+    Input:
+    - `today_date` is a `datetime` object holding today’s date
+    - `quiz_due_dates` is a list of `datetime` objects holding the
+      due date and time for all of the quizzes
+    - `assignment_due_dates` is a list of `datetime` objects holding
+      the due date and time for all of the assignments
+
+    Returns a dictionary that holds the following key/value pairs:
+    "next quiz too late": The number of the next quiz that will be too
+                          late to turn in, as an int
+    "next quiz too late date": The deadline after which the "next quiz
+                               too late" cannot be turned in, as a
+                               string
+    "next assignment too late": The number of the next assignment that
+                                will be too late to turn in, as an int
+    "next assignment too late date": The deadline after which the
+                                     "next assignment too late" cannot
+                                     be turned in, as a string
+    "next assignment resubmit too late": The number of the next
+                                         assignment that will be too
+                                         late to resubmit, as an int
+    "next assignment resubmit too late date": The deadline after which
+                                              the "next assignment
+                                              resubmit too late"
+                                              cannot be turned in, as
+                                              a string
+    """
+    deadlines = {
+        "next quiz too late": -1,
+        "next quiz too late date": "",
+        "next assignment too late": -1,
+        "next assignment too late date": "",
+        "next assignment resubmit too late": -1,
+        "next assignment resubmit too late date": "",
+    }
+
     for number, quiz in enumerate(quiz_due_dates, start=1):
         if today_date < quiz + TOO_LATE_OFFSET:
-            next_quiz_too_late = number
-            next_quiz_too_late_date = (quiz + TOO_LATE_OFFSET).strftime(DATE_FORMAT)
-            break
-
-    next_assignment_too_late = -1
-    next_assignment_too_late_date = -1
-    for number, assignment in enumerate(assignment_due_dates, start=1):
-        if today_date < assignment + TOO_LATE_OFFSET:
-            next_assignment_too_late = number
-            next_assignment_too_late_date = (assignment + TOO_LATE_OFFSET).strftime(
+            deadlines["next quiz too late"] = number
+            deadlines["next quiz too late date"] = (quiz + TOO_LATE_OFFSET).strftime(
                 DATE_FORMAT
             )
             break
 
-    next_assignment_resubmit_too_late = -1
-    next_assignment_resubmit_too_late_date = -1
+    for number, assignment in enumerate(assignment_due_dates, start=1):
+        if today_date < assignment + TOO_LATE_OFFSET:
+            deadlines["next assignment too late"] = number
+            deadlines["next assignment too late date"] = (
+                assignment + TOO_LATE_OFFSET
+            ).strftime(DATE_FORMAT)
+            break
+
     for number, assignment in enumerate(assignment_due_dates, start=1):
         if today_date < assignment + RESUBMISSION_DEADLINE_OFFSET:
-            next_assignment_resubmit_too_late = number
-            next_assignment_resubmit_too_late_date = (
+            deadlines["next assignment resubmit too late"] = number
+            deadlines["next assignment resubmit too late date"] = (
                 assignment + RESUBMISSION_DEADLINE_OFFSET
             ).strftime(DATE_FORMAT)
             break
 
-    last_module = current_module
-    email = ""
-    no_work_done = 0
-    nothing_late = 1
+    return deadlines
+
+
+def process_student_data(
+    grades_data,
+    missing_work_data,
+    current_module,
+    course_number,
+    as_of_date_str,
+    is_midterm_alert,
+    deadlines,
+):
+    """Processes data to generate rows for CSV file output.
+
+    Input:
+    - `grades_data` students grades data
+    - `missing_work_data` student missing assignments data
+    - `current_module` is the module students are working in
+    - `course_number` is the course number
+    - `as_of_date_str` the date being processed to
+    - `is_midterm_alert` is there a midterm alert approaching?
+    - `deadlines` the deadlines that are approaching
+
+    Return a list of lists containing student data, aligned under Mail
+    Merge headings, ready to be written to CSV file.
+    """
+    output_rows = []
 
     for student in grades_data:
         name = student[0]
@@ -396,69 +547,132 @@ def main():
             continue
 
         try:
-            [last_name, first_name] = name.split(", ")
+            last_name, first_name = name.split(", ")
         except ValueError:
             continue  # Malformed name
 
         email = student[3]
 
+        last_module = current_module
+        no_work_done = 0  # False, assume this student is working
+        nothing_late = 1  # True, assume this student's work is up-to-date
+
         for assessment in missing_work_data:
-            if assessment[0] != name:
+            if assessment[0] != name or "Feedback Survey" in assessment[5]:
                 continue
-            if "Feedback Survey" in assessment[5]:
-                continue
-            nothing_late = 0
+
+            nothing_late = 0  # False, prove there is nothing late
 
             assess_code = assessment[5].split()[1]
-            assess = "".join(ch for ch in assess_code if ch.isdigit())
+            assess_number = "".join(ch for ch in assess_code if ch.isdigit())
+
             try:
-                assess = int(assess)
+                assess_number = int(assess_number)
             except ValueError:
                 continue
 
             if assess_code.startswith(FIRST_ASSESS_CODE):
-                no_work_done = 1
+                no_work_done = 1  # True, if this assessment starts
+                # with `FIRST_ASSESS_CODE` then this student has no
+                # work done.
 
-            if assess < last_module:
-                last_module = assess
+            if assess_number < last_module:
+                last_module = assess_number
 
-        to_csv.append(
+        output_rows.append(
             [
-                COURSE_PREFIX + course,
+                COURSE_PREFIX + course_number,
                 first_name,
                 last_name,
                 email,
                 as_of_date_str,
-                midterm_alert,
+                is_midterm_alert,
                 current_module - last_module,
                 last_module,
                 current_module,
                 no_work_done,
                 nothing_late,
-                next_quiz_too_late,
-                next_quiz_too_late_date,
-                next_assignment_too_late,
-                next_assignment_too_late_date,
-                next_assignment_resubmit_too_late,
-                next_assignment_resubmit_too_late_date,
+                deadlines["next quiz too late"],
+                deadlines["next quiz too late date"],
+                deadlines["next assignment too late"],
+                deadlines["next assignment too late date"],
+                deadlines["next assignment resubmit too late"],
+                deadlines["next assignment resubmit too late date"],
             ]
         )
 
-        # Reset for next student
-        last_module = current_module
-        no_work_done = 0
-        nothing_late = 1
+    return output_rows
 
-    today_path_str = today_date.strftime("status-%Y-%m-%d.csv")
-    out_file = base_path / today_path_str
 
+def write_csv_data(out_file, data):
+    """Write mail merge ready data to CSV output file.
+
+    Input:
+    - `out_file` is a `Path` object holding the file to write to
+    - `data` is the data to write to the CSV file
+
+    If the is an error opening the file, report the error to the user
+    and terminate the program.
+    """
     try:
         with out_file.open("w", newline="") as f:
             writer = csv.writer(f, dialect="unix")
-            writer.writerows(to_csv)
+            writer.writerows(data)
     except IOError as e:
         print(f"{e.strerror}: {out_file}", file=sys.stderr)
         sys.exit(1)
+
+
+def main():
+    args = parse_args()
+
+    # Setup
+    quiz_due_dates, assignment_due_dates = generate_due_dates()
+
+    base_path = setup_base_path(args.course, args.base_path)
+
+    today_date = datetime.now()
+
+    current_module = calculate_current_module(args.module, today_date)
+
+    month_day_str, as_of_date_str = format_as_of_date(args.date, today_date)
+
+    midterm_alert = 1 if args.midterm else 0
+
+    # Locate and parse files
+    print(f"Files will be processed from: {base_path}")
+
+    grades_file, missing_file = locate_input_files(base_path, month_day_str)
+
+    missing_work_data = read_csv_file(missing_file, skip_rows=1)
+    # Sort the missing assignments data by name (the first column)
+    missing_work_data.sort(key=iGetter(0))
+
+    grades_data = read_csv_file(grades_file, skip_rows=2)
+
+    # Calculate assessment deadlines
+    deadlines = calculate_deadlines(today_date, quiz_due_dates, assignment_due_dates)
+
+    # Process data into rows for output
+    student_rows = process_student_data(
+        grades_data,
+        missing_work_data,
+        current_module,
+        args.course,
+        as_of_date_str,
+        midterm_alert,
+        deadlines,
+    )
+
+    # Collect CSV headers and data together
+    final_csv_data = list(BASE_CSV_HEADERS)
+    final_csv_data.extend(student_rows)
+
+    # Write data to CSV output
+    today_path_str = today_date.strftime("status-%Y-%m-%d.csv")
+    out_file = base_path / today_path_str
+
+    write_csv_data(out_file, final_csv_data)
 
     print(f"\nSuccessfully generated {out_file}!")
 

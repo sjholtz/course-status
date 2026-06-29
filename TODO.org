@@ -13,7 +13,8 @@ CLOSED: [2026-06-26 Fri 17:38]
 
 Restructure code to be used as a package or a script.
 
-* TODO [#A] Refactor courseStatus.py by modularizing code using functions
+* DONE [#A] Refactor courseStatus.py by modularizing code using functions
+CLOSED: [2026-06-29 Mon 17:42]
 
 Gain the advantages of having modularized code. Easier: reading,
 debugging, support unit testing, etc.
@@ -32,7 +33,8 @@ brittle indexes.
 Use of regular expressions will allow handling of spaces and single
 digit month and/or day in filenames.
 
-* TODO [#A] Refactor courseStatus.py to use configparse to handle configuration values
+* DONE [#A] Refactor courseStatus.py to use configparse to handle configuration values
+CLOSED: [2026-06-29 Mon 11:30]
 
 Use configparse and a config.ini file to move static configuration
 data out of the source.
@@ -63,7 +65,8 @@ annotations.
 Make sure files' character data is formatted properly for input to
 other software.
 
-* TODO [#A] Refactor courseStatus.py remove years from config.ini and use today's year
+* DONE [#A] Refactor courseStatus.py remove years from config.ini and use today's year
+CLOSED: [2026-06-29 Mon 11:30]
 
 Make configuration easier for user - calculate *everything* that you can.
 
