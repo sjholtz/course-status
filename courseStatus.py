@@ -8,7 +8,8 @@ report CSV files into a CSV file used as input to the Thunderbird Mail
 Merge add on. (https://addons.thunderbird.net/addon/mail-merge/).
 
 DEPENDENCIES:
- - Standard Libraries: sys, csv, argparse, datetime, operator, pathlib
+ - Standard Libraries: sys, csv, argparse, datetime, operator,
+                       pathlib, configparser
  - Third-Party Packages: dateutil
 
 USAGE EXAMPLES:
@@ -19,12 +20,13 @@ USAGE EXAMPLES:
   $ python3 courseStatus.py --course 1411 --module 5 --date 03-15 --midterm
 
 AUTHOR: Steven J Holtz
-LAST MODIFIED: 2026-06-26
+LAST MODIFIED: 2026-06-29
 """
 
 import sys
 import csv
 import argparse
+import configparser
 from datetime import datetime, timedelta
 from operator import itemgetter as iGetter
 import pathlib
@@ -32,77 +34,134 @@ import pathlib
 from dateutil.rrule import rrule, rruleset, MO, TU, WE, TH, FR, SA, SU, WEEKLY
 
 # #########################
-# Data that needs to be configured for each semester:
+# Load configuration:
 
-# Course prefix:
-course_prefix = "CS"  # Computer Science courses
+config = configparser.ConfigParser()
+
+if not config.read("config.ini"):
+    print(
+        "ERROR: Could not open 'config.ini'. Please ensure it "
+        "exists in the same directory, has proper permissions, etc.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+# Constants and maps used in configuration processing
+CURRENT_YEAR = datetime.now().year
+
+DAY_MAP = {
+    "Monday": MO,
+    "Tuesday": TU,
+    "Wednesday": WE,
+    "Thursday": TH,
+    "Friday": FR,
+    "Saturday": SA,
+    "Sunday": SU,
+}
+
+
+# Utility function to process MM-DD strings into datetime objects
+def parse_mm_dd(date_str):
+    try:
+        dt = datetime.strptime(f"{CURRENT_YEAR}-{date_str.strip()}", "%Y-%m-%d")
+    except ValueError as e:
+        print(f"ERROR: In config.ini reading '{date_str}' string: {e}", file=sys.stderr)
+        sys.exit(1)
+    return dt
+
+
+# Process "Course" section of config
+
+# Course prefix or designator, like "CS" for "Computer Science":
+COURSE_PREFIX = config.get("Course", "Prefix")
 
 # Course numbers for courses taught:
-course_numbers = ["1151", "1411"]
+COURSE_NUMBERS = config.get("Course", "Numbers").split()
 
 # The very first assessment code:
-first_assess_code = "Q1a"
+FIRST_ASSESS_CODE = config.get("Course", "First Assess Code")
 
 # Number of modules in the course:
-number_of_modules = 14
+try:
+    NUMBER_OF_MODULES = config.getint("Course", "Number of Modules")
+except ValueError as e:
+    print(f"ERROR: In config.ini reading 'Number of Modules': {e}", file=sys.stderr)
+    sys.exit(1)
 
 # Course start and end dates:
-course_dates = [datetime(2026, 5, 14), datetime(2026, 9, 1)]
+COURSE_DATES = [
+    parse_mm_dd(date)
+    for date in config.get("Course", "Dates").splitlines()
+    if date.strip()
+]
 
 # Dates to exclude, like Holidays and Spring Break:
-exclude_dates = [
-    datetime(2026, 5, 19),  # Fake holiday
-    datetime(2026, 7, 9),  # Spring Break Monday
-    datetime(2026, 7, 10),  # Spring Break Tuesday
-    datetime(2026, 7, 11),  # Spring Break Wednesday
-    datetime(2026, 7, 12),  # Spring Break Thursday
-    datetime(2026, 7, 13),  # Spring Break Friday
+EXCLUDE_DATES = [
+    parse_mm_dd(date)
+    for date in config.get("Course", "Exclude Dates").splitlines()
+    if date.strip()
 ]
 
 # Time that solutions are due (17 == 5:00 PM):
-due_time = timedelta(hours=17)
+try:
+    dt_time = datetime.strptime(config.get("Course", "Due Time").strip(), "%I:%M %p")
+    DUE_TIME = timedelta(hours=dt_time.hour, minutes=dt_time.minute)
+except ValueError as e:
+    print(f"ERROR: In config.ini reading 'Due Time': {e}", file=sys.stderr)
+    sys.exit(1)
 
 # Day of the week that quizzes and assignments are due on:
-quiz_due_day_of_week = FR
-assignment_due_day_of_week = WE
+try:
+    QUIZ_DUE_DAY_OF_WEEK = DAY_MAP[config.get("Course", "Quiz Due Day").strip()]
+except KeyError as e:
+    print(f"ERROR: In config.ini reading 'Quiz Due Day': {e}", file=sys.stderr)
+    sys.exit(1)
+
+try:
+    ASSIGNMENT_DUE_DAY_OF_WEEK = DAY_MAP[
+        config.get("Course", "Assignment Due Day").strip()
+    ]
+except KeyError as e:
+    print(f"ERROR: In config.ini reading 'Assignment Due Day': {e}", file=sys.stderr)
+    sys.exit(1)
 
 # Time span after which an assessment is no longer worth any credit:
-too_late_offset = timedelta(weeks=2)
+try:
+    TOO_LATE_OFFSET = timedelta(weeks=config.getint("Course", "Too Late Offset"))
+except ValueError as e:
+    print(f"ERROR: In config.ini reading 'Too Late Offset': {e}", file=sys.stderr)
+    sys.exit(1)
 
 # Time span after which an assignment can no longer be re-submitted to
 # fix errors:
-resubmission_deadline_offset = timedelta(weeks=3)
+try:
+    RESUBMISSION_DEADLINE_OFFSET = timedelta(
+        weeks=config.getint("Course", "Resubmission Deadline Offset")
+    )
+except ValueError as e:
+    print(
+        f"ERROR: In config.ini reading 'Resubmission Deadline Offset': {e}",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 # Default Base path to CSV storage:
-default_base_path = "~/Private/grades"
+DEFAULT_BASE_PATH = config.get("Course", "Base Path")
 
-# #########################
+# Process "Mail Merge" section of config
+
 # Data that needs configured to match the mass email template
 # associated with the Thunderbird mail-merge addon:
 to_csv = [
     [
-        "Course",
-        "FirstName",
-        "LastName",
-        "Email",
-        "Date",
-        "MidtermAlert",
-        "NumberOfModulesBehind",
-        "YouAreInModule",
-        "YouShouldBeInModule",
-        "NoWorkDone",
-        "NothingLate",
-        "NextQuizTooLate",
-        "NextQuizTooLateDate",
-        "NextAssignmentTooLate",
-        "NextAssignmentTooLateDate",
-        "NextAssignmentResubmit",
-        "ResubmitDeadLine",
+        h.strip()
+        for h in config.get("Mail Merge", "Headers").strip().splitlines()
+        if h.strip()
     ]
 ]
 
 # Output format for dates in email:
-date_format = "%-I:%M %p CT on %A %-d %B %Y"
+DATE_FORMAT = config.get("Mail Merge", "Date Format")
 
 # #########################
 
@@ -117,9 +176,9 @@ def parse_args():
         "-c",
         "--course",
         type=str,
-        choices=course_numbers,
-        default=course_numbers[0],
-        help=f"Course number to process (default: {course_numbers[0]})"
+        choices=COURSE_NUMBERS,
+        default=COURSE_NUMBERS[0],
+        help=f"Course number to process (default: {COURSE_NUMBERS[0]})",
     )
 
     parser.add_argument(
@@ -127,7 +186,7 @@ def parse_args():
         "--module",
         type=int,
         help="Current module students are working in (default: "
-        + "auto-calculated from relative week number)"
+        + "auto-calculated from relative week number)",
     )
 
     parser.add_argument(
@@ -135,21 +194,19 @@ def parse_args():
         "--date",
         type=str,
         help="Month-day (MM-DD) string to match in input "
-        + f" filenames. (default: {datetime.today().strftime("%m-%d")})"
+        + f" filenames. (default: {datetime.now().strftime("%m-%d")})",
     )
 
     parser.add_argument(
-        "--midterm",
-        action="store_true",
-        help="Include midterm alert message flag"
+        "--midterm", action="store_true", help="Include midterm alert message flag"
     )
 
     parser.add_argument(
         "--base-path",
         type=str,
-        default=default_base_path,
+        default=DEFAULT_BASE_PATH,
         help="Path to grades directory where all files are read from "
-        + f"written to (default: {default_base_path})"
+        + f"and written to (default: {DEFAULT_BASE_PATH})",
     )
 
     return parser.parse_args()
@@ -165,26 +222,26 @@ def main():
     quiz_rule_set.rrule(
         rrule(
             freq=WEEKLY,
-            dtstart=course_dates[0] + due_time,
-            byweekday=quiz_due_day_of_week,
-            until=course_dates[1] + due_time - too_late_offset,
+            dtstart=COURSE_DATES[0] + DUE_TIME,
+            byweekday=QUIZ_DUE_DAY_OF_WEEK,
+            until=COURSE_DATES[1] + DUE_TIME - TOO_LATE_OFFSET,
         )
     )
 
     assignment_rule_set.rrule(
         rrule(
             freq=WEEKLY,
-            dtstart=course_dates[0] + due_time + timedelta(weeks=1),
-            byweekday=assignment_due_day_of_week,
-            until=course_dates[1] + due_time - timedelta(weeks=1),
+            dtstart=COURSE_DATES[0] + DUE_TIME + timedelta(weeks=1),
+            byweekday=ASSIGNMENT_DUE_DAY_OF_WEEK,
+            until=COURSE_DATES[1] + DUE_TIME - timedelta(weeks=1),
         )
     )
 
-    assignment_rule_set.rdate(course_dates[1] + due_time + timedelta(weeks=1))
+    assignment_rule_set.rdate(COURSE_DATES[1] + DUE_TIME + timedelta(weeks=1))
 
-    for a_date in exclude_dates:
-        quiz_rule_set.exdate(a_date + due_time)
-        assignment_rule_set.exdate(a_date + due_time)
+    for a_date in EXCLUDE_DATES:
+        quiz_rule_set.exdate(a_date + DUE_TIME)
+        assignment_rule_set.exdate(a_date + DUE_TIME)
 
     quiz_due_dates = list(quiz_rule_set)
     assignment_due_dates = list(assignment_rule_set)
@@ -197,7 +254,7 @@ def main():
     # Setup Paths
     course = args.course
     base_path = pathlib.Path(args.base_path).expanduser()
-    base_path /= course_prefix.lower() + str(course)
+    base_path /= COURSE_PREFIX.lower() + str(course)
 
     if not base_path.exists():
         print(
@@ -207,17 +264,17 @@ def main():
         sys.exit(1)
 
     # Calculate current module based on the current week:
-    if course_dates[0].weekday() != 0:  # Not Monday
-        start_date = course_dates[0] - timedelta(days=course_dates[0].weekday())
+    if COURSE_DATES[0].weekday() != 0:  # Not Monday
+        start_date = COURSE_DATES[0] - timedelta(days=COURSE_DATES[0].weekday())
     else:
-        start_date = course_dates[0]
+        start_date = COURSE_DATES[0]
 
     week_number = (today_date - start_date).days // 7
     current_module = args.module if args.module else week_number
 
-    if not (1 <= current_module <= number_of_modules):
+    if not (1 <= current_module <= NUMBER_OF_MODULES):
         print(
-            f"WARNING: Module {current_module} is outside the expected range (1-{number_of_modules}).",
+            f"WARNING: Module {current_module} is outside the expected range (1 - {NUMBER_OF_MODULES}).",
             file=sys.stderr,
         )
 
@@ -303,29 +360,29 @@ def main():
     next_quiz_too_late = -1
     next_quiz_too_late_date = -1
     for number, quiz in enumerate(quiz_due_dates, start=1):
-        if today_date < quiz + too_late_offset:
+        if today_date < quiz + TOO_LATE_OFFSET:
             next_quiz_too_late = number
-            next_quiz_too_late_date = (quiz + too_late_offset).strftime(date_format)
+            next_quiz_too_late_date = (quiz + TOO_LATE_OFFSET).strftime(DATE_FORMAT)
             break
 
     next_assignment_too_late = -1
     next_assignment_too_late_date = -1
     for number, assignment in enumerate(assignment_due_dates, start=1):
-        if today_date < assignment + too_late_offset:
+        if today_date < assignment + TOO_LATE_OFFSET:
             next_assignment_too_late = number
-            next_assignment_too_late_date = (assignment + too_late_offset).strftime(
-                date_format
+            next_assignment_too_late_date = (assignment + TOO_LATE_OFFSET).strftime(
+                DATE_FORMAT
             )
             break
 
     next_assignment_resubmit_too_late = -1
     next_assignment_resubmit_too_late_date = -1
     for number, assignment in enumerate(assignment_due_dates, start=1):
-        if today_date < assignment + resubmission_deadline_offset:
+        if today_date < assignment + RESUBMISSION_DEADLINE_OFFSET:
             next_assignment_resubmit_too_late = number
             next_assignment_resubmit_too_late_date = (
-                assignment + resubmission_deadline_offset
-            ).strftime(date_format)
+                assignment + RESUBMISSION_DEADLINE_OFFSET
+            ).strftime(DATE_FORMAT)
             break
 
     last_module = current_module
@@ -359,7 +416,7 @@ def main():
             except ValueError:
                 continue
 
-            if assess_code.startswith(first_assess_code):
+            if assess_code.startswith(FIRST_ASSESS_CODE):
                 no_work_done = 1
 
             if assess < last_module:
@@ -367,7 +424,7 @@ def main():
 
         to_csv.append(
             [
-                course_prefix + course,
+                COURSE_PREFIX + course,
                 first_name,
                 last_name,
                 email,
@@ -387,6 +444,7 @@ def main():
             ]
         )
 
+        # Reset for next student
         last_module = current_module
         no_work_done = 0
         nothing_late = 1
