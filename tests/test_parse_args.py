@@ -10,18 +10,18 @@ def test_parse_args_defaults():
 
     Note that this test fails if courseStatus.course_numbers is set to
     the empty list."""
-    assert len(courseStatus.course_numbers) > 0
+    assert len(courseStatus.COURSE_NUMBERS) > 0
 
     test_args = ["courseStatus.py"]
 
     with patch.object(sys, "argv", test_args):
         args = courseStatus.parse_args()
 
-        assert args.course == courseStatus.course_numbers[0]
+        assert args.course == courseStatus.COURSE_NUMBERS[0]
         assert args.module is None
         assert args.date is None
         assert args.midterm is False
-        assert args.base_path == courseStatus.default_base_path
+        assert args.base_path == courseStatus.DEFAULT_BASE_PATH
 
 def test_parse_args_custom_values():
     """Test that parse_args correctly captures and types explicitly
@@ -30,12 +30,12 @@ def test_parse_args_custom_values():
     The patching of the courseStatus.course_numbers list ensures that
     the test will pass even if the user has set a different number of
     lists here."""
-    with patch.object(courseStatus, 'course_numbers', ["1151", "1411"]):
-        assert len(courseStatus.course_numbers) > 1
+    with patch.object(courseStatus, 'COURSE_NUMBERS', ["1151", "1411"]):
+        assert len(courseStatus.COURSE_NUMBERS) > 1
 
         test_args = [
             "courseStatus.py",
-            "--course", courseStatus.course_numbers[1],
+            "--course", courseStatus.COURSE_NUMBERS[1],
             "--module", "5",
             "--date", "03-15",
             "--midterm",
@@ -45,7 +45,7 @@ def test_parse_args_custom_values():
         with patch.object(sys, "argv", test_args):
             args = courseStatus.parse_args()
 
-            assert args.course == courseStatus.course_numbers[1]
+            assert args.course == courseStatus.COURSE_NUMBERS[1]
             assert args.module == 5
             assert args.date == "03-15"
             assert args.midterm is True
@@ -58,12 +58,12 @@ def test_parse_args_short_flags():
     The patching of the courseStatus.course_numbers list ensures that
     the test will pass even if the user has set a different number of
     lists here."""
-    with patch.object(courseStatus, 'course_numbers', ["1151", "1411"]):
-        assert len(courseStatus.course_numbers) > 1
+    with patch.object(courseStatus, 'COURSE_NUMBERS', ["1151", "1411"]):
+        assert len(courseStatus.COURSE_NUMBERS) > 1
 
         test_args = [
             "courseStatus.py",
-            "-c", courseStatus.course_numbers[1],
+            "-c", courseStatus.COURSE_NUMBERS[1],
             "-m", "12",
             "-d", "11-01"
         ]
@@ -71,11 +71,11 @@ def test_parse_args_short_flags():
         with patch.object(sys, "argv", test_args):
             args = courseStatus.parse_args()
 
-            assert args.course == courseStatus.course_numbers[1]
+            assert args.course == courseStatus.COURSE_NUMBERS[1]
             assert args.module == 12
             assert args.date == "11-01"
             assert args.midterm is False
-            assert args.base_path == courseStatus.default_base_path
+            assert args.base_path == courseStatus.DEFAULT_BASE_PATH
 
 def test_parse_args_invalid_course():
     """Test that parse_args exits when given an invalid choice for
@@ -84,7 +84,7 @@ def test_parse_args_invalid_course():
     The patching of the courseStatus.course_numbers list ensures that
     the test will pass even if the user has set this to an empty
     list."""
-    with patch.object(courseStatus, 'course_numbers', ["1151", "1411"]):
+    with patch.object(courseStatus, 'COURSE_NUMBERS', ["1151", "1411"]):
         test_args = ["courseStatus.py", "--course", "9999"]
 
         with patch.object(sys, "argv", test_args):
@@ -102,7 +102,7 @@ def test_parse_args_invalid_module_number():
     list.
 
     """
-    with patch.object(courseStatus, 'course_numbers', ["1151", "1411"]):
+    with patch.object(courseStatus, 'COURSE_NUMBERS', ["1151", "1411"]):
         test_args = ["courseStatus.py", "--module", "five"]
 
         with patch.object(sys, "argv", test_args):
