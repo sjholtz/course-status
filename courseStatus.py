@@ -336,7 +336,7 @@ def calculate_current_module(module_arg, today_date):
 
         # How many Mondays have passed between today and the start
         # day?
-        current_module = (today_date - start_date).days // 7
+        current_module = ((today_date - start_date).days // 7) + 1
 
     if not (1 <= current_module <= NUMBER_OF_MODULES):
         print(
@@ -355,11 +355,12 @@ def format_as_of_date(date_arg, today_date):
       it must be of the form "MM-DD"
     - `today_date` is a `datetime` object holding today’s date
 
-    This routine returns 2 related values in a tuple:
+    This routine returns 3 related values in a tuple:
     0. The "MM-DD" string in `date_str` or `today_date` as a 2-digit
        "MM-DD" string
-    1. The "MM-DD-YYYY" string with 1- or 2-digit month and day
+    1. The "MM/DD/YYYY" string with 1- or 2-digit month and day
        generated from both the `month_day_str` and `today_date.year`
+    2. The "YYYY-MM-DD" string 2-digit month and day
 
     If the "MM-DD-YYYY" `datetime` object is invalid, then the user
     receives an error message and the program terminates.
@@ -375,7 +376,7 @@ def format_as_of_date(date_arg, today_date):
         )
         sys.exit(1)
 
-    return month_day_str, as_of_date.strftime("%-m/%-d/%Y")
+    return month_day_str, as_of_date.strftime("%-m/%-d/%Y"), as_of_date.strftime("%Y-%m-%d")
 
 
 def locate_input_files(base_path, month_day_str):
@@ -635,7 +636,7 @@ def main():
 
     current_module = calculate_current_module(args.module, today_date)
 
-    month_day_str, as_of_date_str = format_as_of_date(args.date, today_date)
+    month_day_str, as_of_date_str, out_file_str = format_as_of_date(args.date, today_date)
 
     midterm_alert = 1 if args.midterm else 0
 
@@ -648,7 +649,7 @@ def main():
     # Sort the missing assignments data by name (the first column)
     missing_work_data.sort(key=iGetter(0))
 
-    grades_data = read_csv_file(grades_file, skip_rows=2)
+    grades_data = read_csv_file(grades_file, skip_rows=3)
 
     # Calculate assessment deadlines
     deadlines = calculate_deadlines(today_date, quiz_due_dates, assignment_due_dates)
@@ -665,12 +666,11 @@ def main():
     )
 
     # Collect CSV headers and data together
-    final_csv_data = list(BASE_CSV_HEADERS)
+    final_csv_data = [list(BASE_CSV_HEADERS)]
     final_csv_data.extend(student_rows)
 
     # Write data to CSV output
-    today_path_str = today_date.strftime("status-%Y-%m-%d.csv")
-    out_file = base_path / today_path_str
+    out_file = base_path / f"status-{out_file_str}.csv"
 
     write_csv_data(out_file, final_csv_data)
 
