@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from dateutil.rrule import WE, FR
 import courseStatus
 
+
 def test_generate_due_dates(monkeypatch):
     """Test the generation of quiz and assignment due dates."""
 
@@ -19,12 +20,12 @@ def test_generate_due_dates(monkeypatch):
     mock_exclude = datetime(2026, 5, 22)
 
     # 2. Monkeypatch the global variables in courseStatus
-    monkeypatch.setattr(courseStatus, 'COURSE_DATES', [mock_start, mock_end])
-    monkeypatch.setattr(courseStatus, 'DUE_TIME', mock_due_time)
-    monkeypatch.setattr(courseStatus, 'QUIZ_DUE_DAY_OF_WEEK', FR)
-    monkeypatch.setattr(courseStatus, 'ASSIGNMENT_DUE_DAY_OF_WEEK', WE)
-    monkeypatch.setattr(courseStatus, 'TOO_LATE_OFFSET', timedelta(weeks=1))
-    monkeypatch.setattr(courseStatus, 'EXCLUDE_DATES', [mock_exclude])
+    monkeypatch.setattr(courseStatus, "COURSE_DATES", [mock_start, mock_end])
+    monkeypatch.setattr(courseStatus, "DUE_TIME", mock_due_time)
+    monkeypatch.setattr(courseStatus, "QUIZ_DUE_DAY_OF_WEEK", FR)
+    monkeypatch.setattr(courseStatus, "ASSIGNMENT_DUE_DAY_OF_WEEK", WE)
+    monkeypatch.setattr(courseStatus, "TOO_LATE_OFFSET", timedelta(weeks=1))
+    monkeypatch.setattr(courseStatus, "EXCLUDE_DATES", [mock_exclude])
 
     # 3. Call the function
     quizzes, assignments = courseStatus.generate_due_dates()
@@ -50,7 +51,7 @@ def test_generate_due_dates(monkeypatch):
     # Until: mock_end (June 8) - 1 week = June 1.
     # Plus the final: mock_end (June 8) + 1 week = June 15.
 
-    assert len(assignments) == 3,"Should generate exactly 3 assignment dates"
+    assert len(assignments) == 3, "Should generate exactly 3 assignment dates"
     assert assignments[0] == datetime(2026, 5, 20, 17, 0)
     assert assignments[1] == datetime(2026, 5, 27, 17, 0)
     assert assignments[2] == datetime(2026, 6, 15, 17, 0)

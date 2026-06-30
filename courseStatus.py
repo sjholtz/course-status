@@ -152,8 +152,7 @@ except ValueError as e:
 # Day of the week that quizzes and assignments are due on:
 try:
     QUIZ_DUE_DAY_OF_WEEK = convert_day_str_to_rrule(
-        config.get("Course",
-                   "Quiz Due Day").strip()
+        config.get("Course", "Quiz Due Day").strip()
     )
 except ValueError as e:
     print(f"ERROR: In config.ini reading 'Quiz Due Day': {e}", file=sys.stderr)
@@ -161,8 +160,7 @@ except ValueError as e:
 
 try:
     ASSIGNMENT_DUE_DAY_OF_WEEK = convert_day_str_to_rrule(
-        config.get("Course",
-                   "Assignment Due Day").strip()
+        config.get("Course", "Assignment Due Day").strip()
     )
 except ValueError as e:
     print(f"ERROR: In config.ini reading 'Assignment Due Day': {e}", file=sys.stderr)
@@ -330,7 +328,9 @@ def calculate_current_module(module_arg, today_date):
 
         if first_day_of_class.weekday() != 0:  # Not Monday
             # Set start_day to Monday of that first week of class
-            start_date = first_day_of_class - timedelta(days=first_day_of_class.weekday())
+            start_date = first_day_of_class - timedelta(
+                days=first_day_of_class.weekday()
+            )
         else:
             start_date = first_day_of_class
 
@@ -376,7 +376,11 @@ def format_as_of_date(date_arg, today_date):
         )
         sys.exit(1)
 
-    return month_day_str, as_of_date.strftime("%-m/%-d/%Y"), as_of_date.strftime("%Y-%m-%d")
+    return (
+        month_day_str,
+        as_of_date.strftime("%-m/%-d/%Y"),
+        as_of_date.strftime("%Y-%m-%d"),
+    )
 
 
 def locate_input_files(base_path, month_day_str):
@@ -636,7 +640,9 @@ def main():
 
     current_module = calculate_current_module(args.module, today_date)
 
-    month_day_str, as_of_date_str, out_file_str = format_as_of_date(args.date, today_date)
+    month_day_str, as_of_date_str, out_file_str = format_as_of_date(
+        args.date, today_date
+    )
 
     midterm_alert = 1 if args.midterm else 0
 

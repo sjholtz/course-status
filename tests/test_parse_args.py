@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 import courseStatus
 
+
 def test_parse_args_defaults():
     """Test that parse_args assigns the correct default values when no
     flags are provided.
@@ -23,6 +24,7 @@ def test_parse_args_defaults():
         assert args.midterm is False
         assert args.base_path == courseStatus.DEFAULT_BASE_PATH
 
+
 def test_parse_args_custom_values():
     """Test that parse_args correctly captures and types explicitly
     provided flags.
@@ -30,16 +32,20 @@ def test_parse_args_custom_values():
     The patching of the courseStatus.course_numbers list ensures that
     the test will pass even if the user has set a different number of
     lists here."""
-    with patch.object(courseStatus, 'COURSE_NUMBERS', ["1151", "1411"]):
+    with patch.object(courseStatus, "COURSE_NUMBERS", ["1151", "1411"]):
         assert len(courseStatus.COURSE_NUMBERS) > 1
 
         test_args = [
             "courseStatus.py",
-            "--course", courseStatus.COURSE_NUMBERS[1],
-            "--module", "5",
-            "--date", "03-15",
+            "--course",
+            courseStatus.COURSE_NUMBERS[1],
+            "--module",
+            "5",
+            "--date",
+            "03-15",
             "--midterm",
-            "--base-path", "/custom/path/to/grades"
+            "--base-path",
+            "/custom/path/to/grades",
         ]
 
         with patch.object(sys, "argv", test_args):
@@ -51,6 +57,7 @@ def test_parse_args_custom_values():
             assert args.midterm is True
             assert args.base_path == "/custom/path/to/grades"
 
+
 def test_parse_args_short_flags():
     """Test that parse_args correctly handles short flag
     equivalents.
@@ -58,14 +65,17 @@ def test_parse_args_short_flags():
     The patching of the courseStatus.course_numbers list ensures that
     the test will pass even if the user has set a different number of
     lists here."""
-    with patch.object(courseStatus, 'COURSE_NUMBERS', ["1151", "1411"]):
+    with patch.object(courseStatus, "COURSE_NUMBERS", ["1151", "1411"]):
         assert len(courseStatus.COURSE_NUMBERS) > 1
 
         test_args = [
             "courseStatus.py",
-            "-c", courseStatus.COURSE_NUMBERS[1],
-            "-m", "12",
-            "-d", "11-01"
+            "-c",
+            courseStatus.COURSE_NUMBERS[1],
+            "-m",
+            "12",
+            "-d",
+            "11-01",
         ]
 
         with patch.object(sys, "argv", test_args):
@@ -77,6 +87,7 @@ def test_parse_args_short_flags():
             assert args.midterm is False
             assert args.base_path == courseStatus.DEFAULT_BASE_PATH
 
+
 def test_parse_args_invalid_course():
     """Test that parse_args exits when given an invalid choice for
     course.
@@ -84,7 +95,7 @@ def test_parse_args_invalid_course():
     The patching of the courseStatus.course_numbers list ensures that
     the test will pass even if the user has set this to an empty
     list."""
-    with patch.object(courseStatus, 'COURSE_NUMBERS', ["1151", "1411"]):
+    with patch.object(courseStatus, "COURSE_NUMBERS", ["1151", "1411"]):
         test_args = ["courseStatus.py", "--course", "9999"]
 
         with patch.object(sys, "argv", test_args):
@@ -92,6 +103,7 @@ def test_parse_args_invalid_course():
             with pytest.raises(SystemExit) as exception_info:
                 courseStatus.parse_args()
             assert exception_info.value.code == 2
+
 
 def test_parse_args_invalid_module_number():
     """Test that parse_args exits when the module number passed in is
@@ -102,7 +114,7 @@ def test_parse_args_invalid_module_number():
     list.
 
     """
-    with patch.object(courseStatus, 'COURSE_NUMBERS', ["1151", "1411"]):
+    with patch.object(courseStatus, "COURSE_NUMBERS", ["1151", "1411"]):
         test_args = ["courseStatus.py", "--module", "five"]
 
         with patch.object(sys, "argv", test_args):

@@ -2,6 +2,7 @@ import pytest
 from datetime import datetime
 import courseStatus
 
+
 def test_parse_mm_dd_valid_date():
     """Test that a standard MM-DD string parses correctly."""
     result = courseStatus.parse_mm_dd("05-14")
@@ -9,12 +10,14 @@ def test_parse_mm_dd_valid_date():
 
     assert result == expected
 
+
 def test_parse_mm_dd_with_whitespace():
     """Test that leading and trailing whitespace is stripped."""
     result = courseStatus.parse_mm_dd("  09-01  ")
     expected = datetime(courseStatus.CURRENT_YEAR, 9, 1)
 
     assert result == expected
+
 
 def test_parse_mm_dd_invalid_format(capsys):
     """Test that an invalid string format triggers sys.exit(1)."""
@@ -25,6 +28,7 @@ def test_parse_mm_dd_invalid_format(capsys):
 
     captured = capsys.readouterr()
     assert "ERROR: In config.ini reading" in captured.err
+
 
 def test_parse_mm_dd_impossible_date(capsys):
     """Test that a non-existent date (like Feb 30) triggers sys.exit(1)."""
