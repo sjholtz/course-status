@@ -332,7 +332,7 @@ def calculate_current_module(module_arg, today_date):
             # Set start_day to Monday of that first week of class
             start_date = first_day_of_class - timedelta(days=first_day_of_class.weekday())
         else:
-            start_date = course_start_day
+            start_date = first_day_of_class
 
         # How many Mondays have passed between today and the start
         # day?
