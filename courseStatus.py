@@ -4,9 +4,11 @@
 import sys
 import csv
 import pathlib
+import argparse
 import configparser
 from datetime import datetime, timedelta
 
+# Enforce Python Version
 if sys.hexversion < 0x3050000:
     print("Must use python version 3.5 or greater.", file=sys.stderr)
     sys.exit(1)
@@ -17,7 +19,9 @@ class AppConfig:
 
     def __init__(self, config_file="config.ini"):
         self.parser = configparser.ConfigParser()
-        self.parser.read(config_file)
+        if not self.parser.read(config_file):
+            print(f"ERROR: Could not read config file '{config_file}'", file=sys.stderr)
+            sys.exit(1)
 
         # [Course] settings
         self.prefix = self.parser.get("Course", "Prefix", fallback="CS")
@@ -142,8 +146,6 @@ class Cohort:
         self.modules = self._initialize_modules()
 
     def _initialize_modules(self):
-        # NOTE: Hardcoded dates from source 1 retained for logic,
-        # but structured to scale up to self.config.num_modules if dynamically generated.
         modules = {}
         quiz_dates = [
             (1, datetime(2026, 1, 16, hour=17)),
@@ -293,50 +295,79 @@ class Cohort:
 
 
 def main():
-    config = AppConfig("config.ini")
+    parser = argparse.ArgumentParser(
+        description="Process course statuses from Canvas grade files."
+    )
+    parser.add_argument(
+        "-c",
+        "--course",
+        type=int,
+        required=True,
+        help="The course number (e.g., 1151, 1411).",
+    )
+    parser.add_argument(
+        "-m",
+        "--module",
+        type=int,
+        required=True,
+        help="Current module students are working in (integer).",
+    )
+    parser.add_argument(
+        "-d",
+        "--date",
+        type=str,
+        help="Month-day in missing assignments files (MM-DD). Defaults to today.",
+    )
+    parser.add_argument(
+        "--midterm",
+        action="store_true",
+        help="Flag indicating if this run is for a midterm alert.",
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="config.ini",
+        help="Path to configuration file. Defaults to config.ini.",
+    )
+    args = parser.parse_args()
 
-    # Dynamic Menu based on Config Numbers
-    print("What course:")
-    for i, course_num in enumerate(config.course_numbers, 1):
-        print(f"\t{i}) {course_num}")
+    config = AppConfig(args.config)
 
-    choice_idx = input("Choice: ")
-    try:
-        course = int(config.course_numbers[int(choice_idx) - 1])
-    except (ValueError, IndexError):
-        print("Invalid course: exiting.", file=sys.stderr)
+    # Validate inputs against configuration
+    if str(args.course) not in config.course_numbers:
+        print(
+            f"ERROR: Invalid course '{args.course}'. Expected one of {config.course_numbers}.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
-    while True:
-        try:
-            curr_module = int(
-                input(
-                    f"Current module students are working in (1-{config.num_modules})? "
-                )
-            )
-            if 1 <= curr_module <= config.num_modules:
-                break
-        except ValueError:
-            pass
+    if not (1 <= args.module <= config.num_modules):
         print(
-            f"ERROR: Invalid module number (1-{config.num_modules}).", file=sys.stderr
+            f"ERROR: Invalid module '{args.module}'. Must be between 1 and {config.num_modules}.",
+            file=sys.stderr,
         )
+        sys.exit(1)
 
     today_date = datetime.now()
-    month_day_str = input(
-        f"Enter the month-day in missing assignments files [{today_date.strftime('%m-%d')}]: "
-    ) or today_date.strftime("%m-%d")
-    as_of_date = datetime.strptime(f"{month_day_str}-{today_date.year}", "%m-%d-%Y")
+    month_day_str = args.date if args.date else today_date.strftime("%m-%d")
 
-    midterm_input = input("Is this for a midterm alert [yN]? ").strip().lower()
-    midterm_alert = 1 if midterm_input == "y" else 0
+    try:
+        as_of_date = datetime.strptime(f"{month_day_str}-{today_date.year}", "%m-%d-%Y")
+    except ValueError:
+        print("ERROR: Invalid date format. Must be MM-DD.", file=sys.stderr)
+        sys.exit(1)
 
-    # Build Path using config.base_path and config.prefix
+    midterm_alert = 1 if args.midterm else 0
+
+    # Setup file paths
     base_path = pathlib.Path(
-        f"{config.base_path}/{config.prefix.lower()}{course}"
+        f"{config.base_path}/{config.prefix.lower()}{args.course}"
     ).expanduser()
     if not base_path.exists():
-        print(f"ERROR: {config.base_path} must be mounted!!!", file=sys.stderr)
+        print(
+            f"ERROR: Base path '{base_path}' does not exist or is not mounted!!!",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     grades_file = missing_file = None
@@ -348,18 +379,21 @@ def main():
                 missing_file = file_path
 
     if not (grades_file and missing_file):
-        print("ERROR: Missing grades or assignments files.", file=sys.stderr)
+        print(
+            f"ERROR: Missing grades or assignments files for date {month_day_str} in {base_path}.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
-    print(f"\tGrade data:              {grades_file}")
-    print(f"\tMissing assignment data: {missing_file}")
+    print(f"Using grade data:              {grades_file}")
+    print(f"Using missing assignment data: {missing_file}")
 
-    if input("\nIs everything correct [Yn]? ").strip().lower() == "n":
-        sys.exit(0)
-
-    # Initialize Cohort passing config
     cohort = Cohort(
-        config, course, curr_module, as_of_date.strftime("%-m/%-d/%Y"), midterm_alert
+        config,
+        args.course,
+        args.module,
+        as_of_date.strftime("%-m/%-d/%Y"),
+        midterm_alert,
     )
     cohort.load_grades(grades_file)
     cohort.load_missing_work(missing_file)
@@ -367,7 +401,8 @@ def main():
     out_path = base_path / today_date.strftime("status-%Y-%m-%d.csv")
     cohort.generate_report(out_path, today_date)
 
-    print("\nAll Done! Have a great day!")
+    print(f"Successfully generated report at: {out_path}")
+    print("All Done! Have a great day!")
 
 
 if __name__ == "__main__":
