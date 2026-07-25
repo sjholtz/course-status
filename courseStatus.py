@@ -7,7 +7,7 @@ Course Status Report Generator
 This script processes Canvas gradebook exports and missing assignment reports
 to generate a comprehensive CSV status report for students in a given course.
 It operates via a command-line interface (CLI) and relies on a configuration
-file (`config.ini`) for course-specific parameters, file paths, and output formatting.
+file (`config.toml`) for course-specific parameters, file paths, and output formatting.
 
 Usage:
     python courseStatus.py -c <COURSE_NUM> -m <CURRENT_MODULE> [OPTIONS]
@@ -16,9 +16,9 @@ Example:
     python courseStatus.py -c 1151 -m 4 --date 02-15 --midterm -v
 
 Dependencies:
-    - Python 3.6+ (required for PEP 526 variable type annotations)
+    - Python 3.11+ (required for standard library tomllib)
     - python-dateutil
-    - config.ini file in the working directory
+    - config.toml file in the working directory
 """
 
 import os
@@ -26,8 +26,8 @@ import sys
 import csv
 import pathlib
 import argparse
-import configparser
 import logging
+import tomllib
 from datetime import datetime, timedelta, time
 from typing import List, Dict, Optional, Any, Iterator, Union, cast
 from dateutil.rrule import MO, TU, WE, TH, FR, SA, SU, WEEKLY, rrule, rruleset
@@ -36,12 +36,12 @@ from dateutil.rrule import MO, TU, WE, TH, FR, SA, SU, WEEKLY, rrule, rruleset
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger: logging.Logger = logging.getLogger(__name__)
 
-# Enforce Python 3.6+ to support modern variable type annotations
-if sys.hexversion < 0x3060000:
-    logger.critical("Must use python version 3.6 or greater.")
+# Enforce Python 3.11+ to support native tomllib
+if sys.hexversion < 0x030B0000:
+    logger.critical("Must use Python version 3.11 or greater for TOML support.")
     sys.exit(1)
 
-# Map string representations of weekdays from config.ini to dateutil constants
+# Map string representations of weekdays from config.toml to dateutil constants
 DAY_MAP: Dict[str, Any] = {
     "Monday": MO,
     "Tuesday": TU,
@@ -55,10 +55,9 @@ DAY_MAP: Dict[str, Any] = {
 
 class AppConfig:
     """
-    Parses and stores settings from the configuration file (e.g., config.ini).
+    Parses and stores settings from the configuration file (e.g., config.toml).
 
     Attributes:
-        parser (ConfigParser): The configparser instance.
         prefix (str): Course prefix (e.g., 'CS').
         course_numbers (List[str]): List of valid course numbers.
         first_assess_code (str): The code signifying the first assessment.
@@ -76,89 +75,58 @@ class AppConfig:
         date_format (str): The string format for date representations (cross-platform safe).
     """
 
-    def __init__(self, config_file: str = "config.ini") -> None:
-        self.parser: configparser.ConfigParser = configparser.ConfigParser()
+    def __init__(self, config_file: str = "config.toml") -> None:
         config_path: pathlib.Path = pathlib.Path(config_file)
 
         if not config_path.is_file():
             logger.error(f"Could not read config file '{config_file}'")
             sys.exit(1)
 
-        # Utilize pathlib's read_text() to load the configuration
+        # Parse the TOML file natively into a dictionary
         config_content: str = config_path.read_text(encoding="utf-8")
-        self.parser.read_string(config_content)
+        try:
+            config_data: Dict[str, Any] = tomllib.loads(config_content)
+        except tomllib.TOMLDecodeError as e:
+            logger.error(f"Error parsing TOML config: {e}")
+            sys.exit(1)
 
-        # Parse [Course] section
-        self.prefix: str = self.parser.get("Course", "Prefix", fallback="CS")
-        self.course_numbers: List[str] = self.parser.get(
-            "Course", "Numbers", fallback="1151 1411"
-        ).split()
-        self.first_assess_code: str = self.parser.get(
-            "Course", "First Assess Code", fallback="Q1a"
-        )
-        self.num_modules: int = self.parser.getint(
-            "Course", "Number of Modules", fallback=14
-        )
+        course_data: Dict[str, Any] = config_data.get("Course", {})
+        mail_merge_data: Dict[str, Any] = config_data.get("Mail_Merge", {})
 
-        # Parse non-academic assessments into a list
-        raw_non_academic: List[str] = (
-            self.parser.get(
-                "Course", "Non-Academic Assessments", fallback="Feedback Survey"
-            )
-            .strip()
-            .split("\n")
-        )
-        self.non_academic: List[str] = [
-            item.strip() for item in raw_non_academic if item.strip()
-        ]
+        # Load [Course] variables natively, providing fallbacks
+        self.prefix: str = course_data.get("prefix", "CS")
 
-        # Dates and times for dynamic schedule generation
-        self.raw_dates: List[str] = [
-            d.strip()
-            for d in self.parser.get("Course", "Dates", fallback="1-1\n12-31")
-            .strip()
-            .split("\n")
-            if d.strip()
-        ]
-        self.raw_ex_dates: List[str] = [
-            d.strip()
-            for d in self.parser.get("Course", "Exclude Dates", fallback="")
-            .strip()
-            .split("\n")
-            if d.strip()
-        ]
-        self.due_time_str: str = self.parser.get(
-            "Course", "Due Time", fallback="5:00 PM"
-        ).strip()
-        self.quiz_due_day: str = self.parser.get(
-            "Course", "Quiz Due Day", fallback="Friday"
-        ).strip()
-        self.assign_due_day: str = self.parser.get(
-            "Course", "Assignment Due Day", fallback="Wednesday"
-        ).strip()
+        # Convert the integer array to strings for CLI matching
+        raw_numbers: List[int] = course_data.get("numbers", [1151, 1411])
+        self.course_numbers: List[str] = [str(num) for num in raw_numbers]
 
-        self.too_late_weeks: int = self.parser.getint(
-            "Course", "Too Late Offset", fallback=2
-        )
-        self.resubmit_weeks: int = self.parser.getint(
-            "Course", "Resubmission Deadline Offset", fallback=3
-        )
-        self.base_path: str = self.parser.get(
-            "Course", "Base Path", fallback="~/Private/grades"
-        )
+        self.first_assess_code: str = course_data.get("first_assess_code", "Q1a")
+        self.num_modules: int = course_data.get("number_of_modules", 14)
 
-        # Parse [Mail Merge] section
-        raw_headers: List[str] = (
-            self.parser.get("Mail Merge", "Headers", fallback="").strip().split("\n")
+        self.non_academic: List[str] = course_data.get(
+            "non_academic_assessments", ["Feedback Survey"]
         )
-        self.headers: List[str] = [h.strip() for h in raw_headers if h.strip()]
+        self.raw_dates: List[str] = course_data.get("dates", ["1-1", "12-31"])
+        self.raw_ex_dates: List[str] = course_data.get("exclude_dates", [])
 
-        # Make custom datetime parsing cross-platform
-        raw_format: str = self.parser.get(
-            "Mail Merge", "Date Format", fallback="%-I:%M %p on %A %-d %B %Y"
+        self.due_time_str: str = course_data.get("due_time", "5:00 PM")
+        self.quiz_due_day: str = course_data.get("quiz_due_day", "Friday")
+        self.assign_due_day: str = course_data.get("assignment_due_day", "Wednesday")
+
+        self.too_late_weeks: int = course_data.get("too_late_offset", 2)
+        self.resubmit_weeks: int = course_data.get("resubmission_deadline_offset", 3)
+        self.base_path: str = course_data.get("base_path", "~/Private/grades")
+
+        # Load [Mail_Merge] variables natively
+        self.headers: List[str] = mail_merge_data.get(
+            "headers", ["Course", "Name", "Status"]
+        )
+        raw_format: str = mail_merge_data.get(
+            "date_format", "%-I:%M %p on %A %-d %B %Y"
         )
 
         self.date_format: str
+        # Make custom datetime parsing cross-platform
         if os.name == "nt":  # Windows environment
             self.date_format = raw_format.replace("%-", "%#")
         else:  # Unix/Linux/macOS environment
@@ -275,7 +243,7 @@ class Cohort:
     def _initialize_modules(self, term_year: int) -> Dict[int, CourseModule]:
         """
         Dynamically constructs the internal dictionary of modules and their strict due dates
-        using python-dateutil's rrule based on config.ini term dates and exclusions.
+        using python-dateutil's rrule based on config.toml term dates and exclusions.
         """
         due_time: time = datetime.strptime(
             self.config.due_time_str.upper(), "%I:%M %p"
@@ -517,8 +485,8 @@ def main() -> None:
     parser.add_argument(
         "--config",
         type=str,
-        default="config.ini",
-        help="Path to configuration file. Defaults to config.ini.",
+        default="config.toml",
+        help="Path to configuration file. Defaults to config.toml.",
     )
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="Enable verbose debug logging."

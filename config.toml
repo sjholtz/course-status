@@ -1,0 +1,53 @@
+[Course]
+prefix = "CS"
+numbers = [1151, 1411]
+first_assess_code = "Q1a"
+number_of_modules = 14
+non_academic_assessments = [
+    "Feedback Survey",
+    "Introductory Quiz"
+]
+# Dates MUST be in the form MM-DD, MM-D, M-DD, or M-D
+dates = [
+    "5-4",
+    "9-1"
+]
+exclude_dates = [
+    "5-19",
+    "7-9",
+    "7-10",
+    "7-11",
+    "7-12",
+    "7-13"
+]
+due_time = "5:00 PM"
+quiz_due_day = "Friday"
+assignmet_due_day = "Wednesday"
+# Days until too late to turn in
+too_late_offset = 14
+# Days until too late to resubmit updated solution
+resubmission_deadline_offset = 21
+
+base_path = "~/Private/grades"
+
+[Mail_Merge]
+headers = [
+    "Course",
+    "First Name",
+    "Last Name",
+    "Email",
+    "As Of Date",
+    "Midterm Alert",
+    "Modules Behind",
+    "Last Module",
+    "Current Module",
+    "No Work Done",
+    "Nothing Late",
+    "Quiz Late",
+    "Quiz Late Date",
+    "Assign Late",
+    "Assign Late Date",
+    "Resubmit",
+    "Resubmit Date"
+]
+date_format = "%-I:%M %p on %A %-d %B %Y"
