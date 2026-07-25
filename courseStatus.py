@@ -24,6 +24,7 @@ Dependencies:
 import os
 import sys
 import csv
+import re
 import pathlib
 import argparse
 import logging
@@ -126,6 +127,9 @@ class AppConfig:
         self.raw_dates: List[str] = course_data.get("dates", ["1-1", "12-31"])
         self.raw_ex_dates: List[str] = course_data.get("exclude_dates", [])
 
+        # Validate the dates extracted from the config
+        self._validate_dates()
+
         self.due_time_str: str = course_data.get("due_time", "5:00 PM")
         self.quiz_due_day: str = course_data.get("quiz_due_day", "Friday")
         self.assign_due_day: str = course_data.get("assignment_due_day", "Wednesday")
@@ -155,6 +159,38 @@ class AppConfig:
             self.date_format = raw_format.replace("%-", "%#")
         else:  # Unix/Linux/macOS environment
             self.date_format = raw_format.replace("%#", "%-")
+
+    def _validate_dates(self) -> None:
+        """Validates that dates provided in config are in M-D or MM-DD format and are valid calendar days."""
+        if len(self.raw_dates) != 2:
+            logger.error(
+                f"Config 'dates' must contain exactly two elements (start and end). Found {len(self.raw_dates)}."
+            )
+            sys.exit(1)
+
+        def check_date(date_str: str, field_name: str) -> None:
+            try:
+                parts: List[str] = date_str.split("-")
+                if len(parts) != 2:
+                    raise ValueError(
+                        "Date string must contain exactly one hyphen separating month and day."
+                    )
+                m: int
+                d: int
+                m, d = map(int, parts)
+                # Use a leap year (e.g., 2024) to validate M and D bounds, natively allowing Feb 29
+                datetime(2024, m, d)
+            except ValueError as e:
+                logger.error(
+                    f"Invalid date format '{date_str}' in config '{field_name}': {e}"
+                )
+                sys.exit(1)
+
+        for d_str in self.raw_dates:
+            check_date(d_str, "dates")
+
+        for d_str in self.raw_ex_dates:
+            check_date(d_str, "exclude_dates")
 
 
 class CourseModule:
@@ -289,13 +325,9 @@ class Cohort:
         end_m: int
         end_d: int
 
-        # Parse term start and end dates
-        if len(self.config.raw_dates) >= 2:
-            start_m, start_d = map(int, self.config.raw_dates[0].split("-"))
-            end_m, end_d = map(int, self.config.raw_dates[1].split("-"))
-        else:
-            start_m, start_d = 1, 1
-            end_m, end_d = 12, 31
+        # Term start and end dates (Guaranteed to have len 2 by AppConfig._validate_dates)
+        start_m, start_d = map(int, self.config.raw_dates[0].split("-"))
+        end_m, end_d = map(int, self.config.raw_dates[1].split("-"))
 
         start_dt: datetime = datetime(
             term_year, start_m, start_d, due_time.hour, due_time.minute
@@ -577,11 +609,17 @@ def main() -> None:
     missing_file: Optional[pathlib.Path] = None
 
     file_path: pathlib.Path
+    pattern: re.Pattern[str] = re.compile(
+        rf"^{config.missing_keyword}[ -]\d{{1,2}}-\d{{1,2}}-\d{{4}}\.csv$",
+        re.IGNORECASE,
+    )
     for file_path in base_path.iterdir():
         if month_day_str in file_path.name and file_path.suffix == ".csv":
             if config.grades_keyword in file_path.name:
                 grades_file = file_path
-            elif file_path.name.startswith(config.missing_keyword):
+            elif file_path.name.startswith(config.missing_keyword) and pattern.match(
+                file_path.name
+            ):
                 missing_file = file_path
 
     if not (grades_file and missing_file):
