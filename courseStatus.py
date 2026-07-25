@@ -68,8 +68,9 @@ class AppConfig:
         non_academic (List[str]): List of non-academic assignments to ignore.
         ignored_students (List[str]): List of student names to exclude from processing.
         raw_dates (List[str]): The Term Start and End Dates strings.
-        raw_ex_dates (List[str]): Holiday and exclusion date strings.
-        due_time_str (str): The string representing module due times (e.g., "5:00 PM").
+        raw_exclude_dates (List[str]): Holiday and exclusion date strings.
+        quizzes_due_time_str (str): The string representing quiz due times (e.g., "5:00 PM").
+        assignment_due_time_str (str): The string representing assignment due times.
         quiz_due_day (str): String representing the day quizzes are due.
         assign_due_day (str): String representing the day assignments are due.
         too_late_weeks (int): Number of weeks before an assignment is considered "too late".
@@ -98,6 +99,11 @@ class AppConfig:
             sys.exit(1)
 
         course_data: Dict[str, Any] = config_data.get("Course", {})
+        dates_data: Dict[str, Any] = course_data.get("Dates", {})
+        assessment_data: Dict[str, Any] = course_data.get("Assessments", {})
+        quizzes_data: Dict[str, Any] = assessment_data.get("Quizzes", {})
+        assignments_data: Dict[str, Any] = assessment_data.get("Assignments", {})
+        final_data: Dict[str, Any] = assessment_data.get("Final", {})
         system_data: Dict[str, Any] = config_data.get("System", {})
         mail_merge_data: Dict[str, Any] = config_data.get("Mail_Merge", {})
 
@@ -110,33 +116,71 @@ class AppConfig:
 
         self.first_assess_code: str = course_data.get("first_assess_code", "Q1a")
 
-        raw_delimiter: str = course_data.get("assignment_code_delimiter", " ")
+        raw_delimiter: str = system_data.get("assignment_code_delimiter", " ")
         # Map a single space to None so Python's split() handles consecutive whitespace safely
         self.assign_code_delimiter: Optional[str] = (
             None if raw_delimiter == " " else raw_delimiter
         )
-        self.assign_code_index: int = course_data.get("assignment_code_index", 1)
+        self.assign_code_index: int = system_data.get("assignment_code_index", 1)
 
         self.num_modules: int = course_data.get("number_of_modules", 14)
-        self.non_academic: List[str] = course_data.get(
-            "non_academic_assessments", ["Feedback Survey"]
+        self.non_academic: List[str] = assessment_data.get(
+            "non_academic", ["Feedback Survey"]
         )
         self.ignored_students: List[str] = course_data.get(
             "ignored_students", ["Points Possible", "Student, Test"]
         )
-        self.raw_dates: List[str] = course_data.get("dates", ["1-1", "12-31"])
-        self.raw_ex_dates: List[str] = course_data.get("exclude_dates", [])
+        self.raw_dates: List[str] = dates_data.get("dates", ["1-1", "12-24"])
+        self.raw_finals_dates: List[str] = dates_data.get(
+            "final_dates", ["12-25", "12-31"]
+        )
+        self.raw_exclude_dates: List[str] = dates_data.get("exclude_dates", [])
 
         # Validate the dates extracted from the config
         self._validate_dates()
 
-        self.due_time_str: str = course_data.get("due_time", "5:00 PM")
+        # Get assessments data
+        self.assessments: Dict[str, Dict[str, Any]] = {}
+
+        for assess_type, assess_config in assessment_data.items():
+            if not isinstance(assess_config, dict):
+                logger.warning(f"Skipping invalid assessment entry: '{assess_type}'")
+                continue
+
+            # Extract required due_time and due_day
+            due_time: Optional[str] = assess_config.get("due_time")
+            due_day: Optional[str] = assess_config.get("due_day")
+
+            if not due_time or not due_day:
+                logger.error(
+                    f"Assessment '{assess_type}' is missing required 'due_time' or 'due_day' in config.toml."
+                )
+                sys.exit(1)
+
+            # Extract optional too_late_deadline_offset and resubmission_deadline_offset
+            too_late_offset: Optional[int] = assess_config.get(
+                "too_late_deadline_offset"
+            )
+            resubmission_offset: Optional[int] = assess_config.get(
+                "resubmission_deadline_offset"
+            )
+
+            self.assessments[assess_type] = {
+                "due_time": due_time,
+                "due_day": due_day,
+                "too_late_offset": too_late_offset,
+                "resubmission_offset": resubmission_offset,
+            }
+
+        self.quizzes_due_time_str: str = quizzes_data.get("due_time", "5:00 PM")
+        self.assignment_due_time_str: str = assignments_data.get("due_time", "5:00 PM")
+
         self.quiz_due_day: str = course_data.get("quiz_due_day", "Friday")
         self.assign_due_day: str = course_data.get("assignment_due_day", "Wednesday")
 
         self.too_late_weeks: int = course_data.get("too_late_offset", 2)
         self.resubmit_weeks: int = course_data.get("resubmission_deadline_offset", 3)
-        self.base_path: str = course_data.get("base_path", "~/Private/grades")
+        self.base_path: str = system_data.get("base_path", "~/Private/grades")
 
         # Load [System] variables natively
         self.grades_keyword: str = system_data.get("grades_file_keyword", "Grades")
@@ -189,8 +233,103 @@ class AppConfig:
         for d_str in self.raw_dates:
             check_date(d_str, "dates")
 
-        for d_str in self.raw_ex_dates:
+        for d_str in self.raw_finals_dates:
+            check_date(d_str, "final_dates")
+
+        for d_str in self.raw_exclude_dates:
             check_date(d_str, "exclude_dates")
+
+
+class AssessmentMeta:
+    """
+    Stores the definitive configuration and rules for a specific assessment type.
+    """
+
+    def __init__(
+        self,
+        due_time: time,
+        due_day: str,
+        too_late_offset: Optional[timedelta] = None,
+        resubmission_offset: Optional[timedelta] = None,
+    ) -> None:
+        self.due_time: time = due_time
+        self.due_day: str = due_day  # e.g., "Friday"
+        self.too_late_offset: Optional[timedelta] = too_late_offset
+        self.resubmission_offset: Optional[timedelta] = resubmission_offset
+
+
+class Assessment:
+    """
+    Represents an individual assessment that counts toward a student's grade.
+    """
+
+    # Class-level registry acting as the meta-class storage for each assessment 'type'
+    _type_registry: Dict[str, AssessmentMeta] = {}
+
+    @classmethod
+    def register_type_meta(
+        cls,
+        assess_type: str,
+        due_time: time,
+        due_day: str,
+        too_late_offset: Optional[timedelta] = None,
+        resubmission_offset: Optional[timedelta] = None,
+    ) -> None:
+        """
+        Registers the meta-information for a specific assessment type.
+        """
+        cls._type_registry[assess_type] = AssessmentMeta(
+            due_time, due_day, too_late_offset, resubmission_offset
+        )
+
+    def __init__(
+        self, assess_type: str, due_date: datetime, strict_validation: bool = False
+    ) -> None:
+        self.type: str = assess_type
+        self.due_date: datetime = due_date
+
+        # Retrieve the meta-information for this specific assessment type
+        meta: Optional[AssessmentMeta] = self._type_registry.get(self.type)
+        if not meta:
+            raise ValueError(
+                f"Assessment type '{self.type}' is missing meta-configuration. Please register it first."
+            )
+
+        # Validate the schedule
+        self._validate_schedule(meta, strict_validation)
+
+        self.too_late_date: Optional[datetime] = None
+        self.resubmission_date: Optional[datetime] = None
+
+        # Calculate deadline attributes dynamically based on the
+        # stored durations
+        if meta.too_late_offset is not None:
+            self.too_late_date = self.due_date + meta.too_late_offset
+
+        if meta.resubmission_offset is not None:
+            self.resubmission_date = self.due_date + meta.resubmission_offset
+
+    def _validate_schedule(self, meta: AssessmentMeta, strict: bool) -> None:
+        """
+        Validates that the provided due_date aligns with the registered meta rules.
+        """
+        # Validate time
+        if self.due_date.time() != meta.due_time:
+            msg = f"{self.type} scheduled at {self.due_date.time()}, but expects {meta.due_time}."
+            if strict:
+                raise ValueError(msg)
+            logger.debug(f"Schedule override: {msg}")
+
+        # Validate day of week (strftime('%A') returns the full weekday name)
+        actual_day = self.due_date.strftime("%A")
+        if actual_day != meta.due_day:
+            msg = f"{self.type} scheduled on {actual_day}, but expects {meta.due_day}."
+            if strict:
+                raise ValueError(msg)
+            logger.debug(f"Schedule override: {msg}")
+
+    def __repr__(self) -> str:
+        return f"<Assessment(type='{self.type}', due_date={self.due_date.strftime('%Y-%m-%d %H:%M')})>"
 
 
 class CourseModule:
@@ -316,8 +455,12 @@ class Cohort:
         Dynamically constructs the internal dictionary of modules and their strict due dates
         using python-dateutil's rrule based on config.toml term dates and exclusions.
         """
-        due_time: time = datetime.strptime(
-            self.config.due_time_str.upper(), "%I:%M %p"
+        quiz_time: time = datetime.strptime(
+            self.config.quizzes_due_time_str.upper(), "%I:%M %p"
+        ).time()
+
+        assign_time: time = datetime.strptime(
+            self.config.assignment_due_time_str.upper(), "%I:%M %p"
         ).time()
 
         start_m: int
@@ -329,30 +472,52 @@ class Cohort:
         start_m, start_d = map(int, self.config.raw_dates[0].split("-"))
         end_m, end_d = map(int, self.config.raw_dates[1].split("-"))
 
-        start_dt: datetime = datetime(
-            term_year, start_m, start_d, due_time.hour, due_time.minute
+        # Build isolated base datetimes for Quizzes
+        quiz_start_dt: datetime = datetime(
+            term_year, start_m, start_d, quiz_time.hour, quiz_time.minute
         )
-        end_dt: datetime = datetime(
-            term_year, end_m, end_d, due_time.hour, due_time.minute
+        quiz_end_dt: datetime = datetime(
+            term_year, end_m, end_d, quiz_time.hour, quiz_time.minute
         )
-
         # Accommodate courses that cross into the new year
-        if end_dt < start_dt:
-            end_dt = end_dt.replace(year=term_year + 1)
+        if quiz_end_dt < quiz_start_dt:
+            quiz_end_dt = quiz_end_dt.replace(year=term_year + 1)
+
+        # Build isolated base datetimes for Assignments
+        assign_start_dt: datetime = datetime(
+            term_year, start_m, start_d, assign_time.hour, assign_time.minute
+        )
+        assign_end_dt: datetime = datetime(
+            term_year, end_m, end_d, assign_time.hour, assign_time.minute
+        )
+        if assign_end_dt < assign_start_dt:
+            assign_end_dt = assign_end_dt.replace(year=term_year + 1)
 
         # Parse exclusion dates and assign exact times so rruleset.exdate() can match them
-        exdates: List[datetime] = []
+        quiz_exdates: List[datetime] = []
+        assign_exdates: List[datetime] = []
+
         ex_str: str
-        for ex_str in self.config.raw_ex_dates:
+        for ex_str in self.config.raw_exclude_dates:
             ex_m: int
             ex_d: int
             ex_m, ex_d = map(int, ex_str.split("-"))
-            ex_dt: datetime = datetime(
-                term_year, ex_m, ex_d, due_time.hour, due_time.minute
+
+            # Setup quiz exclusion
+            q_ex_dt: datetime = datetime(
+                term_year, ex_m, ex_d, quiz_time.hour, quiz_time.minute
             )
-            if ex_dt < start_dt and end_dt.year > term_year:
-                ex_dt = ex_dt.replace(year=term_year + 1)
-            exdates.append(ex_dt)
+            if q_ex_dt < quiz_start_dt and quiz_end_dt.year > term_year:
+                q_ex_dt = q_ex_dt.replace(year=term_year + 1)
+            quiz_exdates.append(q_ex_dt)
+
+            # Setup assignment exclusion
+            a_ex_dt: datetime = datetime(
+                term_year, ex_m, ex_d, assign_time.hour, assign_time.minute
+            )
+            if a_ex_dt < assign_start_dt and assign_end_dt.year > term_year:
+                a_ex_dt = a_ex_dt.replace(year=term_year + 1)
+            assign_exdates.append(a_ex_dt)
 
         # Convert strings ("Friday", "Wednesday") to dateutil constants (FR, WE)
         quiz_day: Any = DAY_MAP.get(self.config.quiz_due_day, FR)
@@ -361,17 +526,22 @@ class Cohort:
         # Setup quiz recurring date rules
         quiz_rules: rruleset = rruleset()
         quiz_rules.rrule(
-            rrule(WEEKLY, byweekday=quiz_day, dtstart=start_dt, until=end_dt)
+            rrule(WEEKLY, byweekday=quiz_day, dtstart=quiz_start_dt, until=quiz_end_dt)
         )
-        for ex_dt in exdates:
+        for ex_dt in quiz_exdates:
             quiz_rules.exdate(ex_dt)
 
         # Setup assignment recurring date rules
         assign_rules: rruleset = rruleset()
         assign_rules.rrule(
-            rrule(WEEKLY, byweekday=assign_day, dtstart=start_dt, until=end_dt)
+            rrule(
+                WEEKLY,
+                byweekday=assign_day,
+                dtstart=assign_start_dt,
+                until=assign_end_dt,
+            )
         )
-        for ex_dt in exdates:
+        for ex_dt in assign_exdates:
             assign_rules.exdate(ex_dt)
 
         # Extract exactly N modules based on the config
