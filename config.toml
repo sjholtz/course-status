@@ -3,32 +3,39 @@ prefix = "CS"
 numbers = [1151, 1411]
 first_assess_code = "Q1a"
 number_of_modules = 14
+
 non_academic_assessments = [
     "Feedback Survey",
     "Introductory Quiz"
 ]
+
+# Exact names or substrings in the Canvas export Name column to ignore
+ignored_students = [
+    "Points Possible",
+    "Student, Test",
+    "Test Student"
+]
+
 # Dates MUST be in the form MM-DD, MM-D, M-DD, or M-D
-dates = [
-    "5-4",
-    "9-1"
-]
-exclude_dates = [
-    "5-19",
-    "7-9",
-    "7-10",
-    "7-11",
-    "7-12",
-    "7-13"
-]
+dates = ["1-1", "12-31"]
+exclude_dates = []
+
 due_time = "5:00 PM"
 quiz_due_day = "Friday"
-assignmet_due_day = "Wednesday"
+assignment_due_day = "Wednesday"
+
 # Days until too late to turn in
 too_late_offset = 14
 # Days until too late to resubmit updated solution
 resubmission_deadline_offset = 21
 
 base_path = "~/Private/grades"
+
+[System]
+# Keywords used to identify the correct CSV files for a given date
+grades_file_keyword = "Grades"
+missing_file_keyword = "missingAssignments"
+output_file_prefix = "status-"
 
 [Mail_Merge]
 headers = [

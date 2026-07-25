@@ -63,6 +63,7 @@ class AppConfig:
         first_assess_code (str): The code signifying the first assessment.
         num_modules (int): Total number of modules in the course.
         non_academic (List[str]): List of non-academic assignments to ignore.
+        ignored_students (List[str]): List of student names to exclude from processing.
         raw_dates (List[str]): The Term Start and End Dates strings.
         raw_ex_dates (List[str]): Holiday and exclusion date strings.
         due_time_str (str): The string representing module due times (e.g., "5:00 PM").
@@ -71,6 +72,9 @@ class AppConfig:
         too_late_weeks (int): Number of weeks before an assignment is considered "too late".
         resubmit_weeks (int): Number of weeks before the resubmission deadline passes.
         base_path (str): The root directory where grade files are stored.
+        grades_keyword (str): Substring to identify the grades CSV.
+        missing_keyword (str): Substring to identify the missing assignments CSV.
+        output_prefix (str): Prefix for the generated output report CSV.
         headers (List[str]): CSV column headers for the output report.
         date_format (str): The string format for date representations (cross-platform safe).
     """
@@ -91,6 +95,7 @@ class AppConfig:
             sys.exit(1)
 
         course_data: Dict[str, Any] = config_data.get("Course", {})
+        system_data: Dict[str, Any] = config_data.get("System", {})
         mail_merge_data: Dict[str, Any] = config_data.get("Mail_Merge", {})
 
         # Load [Course] variables natively, providing fallbacks
@@ -106,6 +111,9 @@ class AppConfig:
         self.non_academic: List[str] = course_data.get(
             "non_academic_assessments", ["Feedback Survey"]
         )
+        self.ignored_students: List[str] = course_data.get(
+            "ignored_students", ["Points Possible", "Student, Test"]
+        )
         self.raw_dates: List[str] = course_data.get("dates", ["1-1", "12-31"])
         self.raw_ex_dates: List[str] = course_data.get("exclude_dates", [])
 
@@ -116,6 +124,13 @@ class AppConfig:
         self.too_late_weeks: int = course_data.get("too_late_offset", 2)
         self.resubmit_weeks: int = course_data.get("resubmission_deadline_offset", 3)
         self.base_path: str = course_data.get("base_path", "~/Private/grades")
+
+        # Load [System] variables natively
+        self.grades_keyword: str = system_data.get("grades_file_keyword", "Grades")
+        self.missing_keyword: str = system_data.get(
+            "missing_file_keyword", "missingAssignments"
+        )
+        self.output_prefix: str = system_data.get("output_file_prefix", "status-")
 
         # Load [Mail_Merge] variables natively
         self.headers: List[str] = mail_merge_data.get(
@@ -343,8 +358,11 @@ class Cohort:
             next(reader)
             row: List[str]
             for row in reader:
+                if not row:
+                    continue
                 name: str = row[0]
-                if "Points Possible" in name or "Student, Test" in name:
+                # Filter out test students and points possible rows using config list
+                if any(ignored in name for ignored in self.config.ignored_students):
                     continue
                 self.get_or_create_student(name, row[3])
         logger.debug(f"Loaded grades for {len(self._students)} students.")
@@ -357,7 +375,8 @@ class Cohort:
         with target_path.open("r", encoding="utf-8") as f:
             reader: Any = csv.reader(f)
             next(reader)
-            missing_data: List[List[str]] = [row for row in reader]
+            # Fetch all non-empty missing assignments
+            missing_data: List[List[str]] = [row for row in reader if row]
             missing_data.sort(key=lambda x: x[0])
 
             row: List[str]
@@ -540,9 +559,9 @@ def main() -> None:
     file_path: pathlib.Path
     for file_path in base_path.iterdir():
         if month_day_str in file_path.name and file_path.suffix == ".csv":
-            if "Grades" in file_path.name:
+            if config.grades_keyword in file_path.name:
                 grades_file = file_path
-            elif file_path.name.startswith("missingAssignments"):
+            elif file_path.name.startswith(config.missing_keyword):
                 missing_file = file_path
 
     if not (grades_file and missing_file):
@@ -568,7 +587,9 @@ def main() -> None:
     cohort.load_grades(grades_file)
     cohort.load_missing_work(missing_file)
 
-    out_path: pathlib.Path = base_path / today_date.strftime("status-%Y-%m-%d.csv")
+    out_path: pathlib.Path = base_path / today_date.strftime(
+        f"{config.output_prefix}%Y-%m-%d.csv"
+    )
     cohort.generate_report(out_path, today_date)
 
     logger.info(f"Successfully generated report at: {out_path}")
