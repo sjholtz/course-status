@@ -157,6 +157,7 @@ class AppConfig:
         raw_format: str = self.parser.get(
             "Mail Merge", "Date Format", fallback="%-I:%M %p on %A %-d %B %Y"
         )
+
         self.date_format: str
         if os.name == "nt":  # Windows environment
             self.date_format = raw_format.replace("%-", "%#")
@@ -451,9 +452,10 @@ class Cohort:
     def generate_report(self, output_path: pathlib.Path, today_date: datetime) -> None:
         deadlines: Dict[str, Union[int, str]] = self._calculate_deadlines(today_date)
 
-        # Utilize pathlib's open() for writing
+        # Utilize pathlib's open() for writing and default to standard "excel" dialect
+        # to prevent cross-platform formatting issues in spreadsheet processors
         with output_path.open("w", newline="", encoding="utf-8") as f:
-            writer: Any = csv.writer(f, dialect="unix")
+            writer: Any = csv.writer(f)
             writer.writerow(self.config.headers)
 
             student: Student
