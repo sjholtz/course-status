@@ -61,6 +61,8 @@ class AppConfig:
         prefix (str): Course prefix (e.g., 'CS').
         course_numbers (List[str]): List of valid course numbers.
         first_assess_code (str): The code signifying the first assessment.
+        assign_code_delimiter (Optional[str]): Delimiter for extracting the assign code.
+        assign_code_index (int): Index position of the assign code after splitting.
         num_modules (int): Total number of modules in the course.
         non_academic (List[str]): List of non-academic assignments to ignore.
         ignored_students (List[str]): List of student names to exclude from processing.
@@ -106,8 +108,15 @@ class AppConfig:
         self.course_numbers: List[str] = [str(num) for num in raw_numbers]
 
         self.first_assess_code: str = course_data.get("first_assess_code", "Q1a")
-        self.num_modules: int = course_data.get("number_of_modules", 14)
 
+        raw_delimiter: str = course_data.get("assignment_code_delimiter", " ")
+        # Map a single space to None so Python's split() handles consecutive whitespace safely
+        self.assign_code_delimiter: Optional[str] = (
+            None if raw_delimiter == " " else raw_delimiter
+        )
+        self.assign_code_index: int = course_data.get("assignment_code_index", 1)
+
+        self.num_modules: int = course_data.get("number_of_modules", 14)
         self.non_academic: List[str] = course_data.get(
             "non_academic_assessments", ["Feedback Survey"]
         )
@@ -140,8 +149,8 @@ class AppConfig:
             "date_format", "%-I:%M %p on %A %-d %B %Y"
         )
 
-        self.date_format: str
         # Make custom datetime parsing cross-platform
+        self.date_format: str
         if os.name == "nt":  # Windows environment
             self.date_format = raw_format.replace("%-", "%#")
         else:  # Unix/Linux/macOS environment
@@ -195,7 +204,18 @@ class Student:
                 continue
 
             nothing_late = 0
-            assign_code: str = desc.split()[1]
+
+            # Extract assignment code using configured delimiter and index
+            parts: List[str] = desc.split(self.config.assign_code_delimiter)
+
+            if len(parts) > self.config.assign_code_index:
+                assign_code: str = parts[self.config.assign_code_index]
+            else:
+                logger.debug(
+                    f"Could not extract assignment code from '{desc}' for {self.email}. Index {self.config.assign_code_index} out of bounds."
+                )
+                continue
+
             assign_str: str = "".join(ch for ch in assign_code if ch.isdigit())
 
             assign: int

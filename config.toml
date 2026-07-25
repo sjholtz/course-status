@@ -4,6 +4,12 @@ numbers = [1151, 1411]
 first_assess_code = "Q1a"
 number_of_modules = 14
 
+# Assignment Code Extraction Settings
+# Delimiter used to split the assignment title (use " " for any whitespace)
+assignment_code_delimiter = " "
+# The position of the assignment code after splitting (0-indexed; 1 = 2nd position)
+assignment_code_index = 1
+
 non_academic_assessments = [
     "Feedback Survey",
     "Introductory Quiz"
