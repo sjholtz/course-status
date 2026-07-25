@@ -26,13 +26,18 @@ import csv
 import pathlib
 import argparse
 import configparser
+import logging
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Any, Iterator, Union, cast
 from dateutil.rrule import MO, TU, WE, TH, FR, SA, SU, WEEKLY, rrule, rruleset
 
+# Configure basic logging for the CLI application
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+logger: logging.Logger = logging.getLogger(__name__)
+
 # Enforce Python 3.6+ to support modern variable type annotations
 if sys.hexversion < 0x3060000:
-    print("Must use python version 3.6 or greater.", file=sys.stderr)
+    logger.critical("Must use python version 3.6 or greater.")
     sys.exit(1)
 
 # Map string representations of weekdays from config.ini to dateutil constants
@@ -73,7 +78,7 @@ class AppConfig:
     def __init__(self, config_file: str = "config.ini") -> None:
         self.parser: configparser.ConfigParser = configparser.ConfigParser()
         if not self.parser.read(config_file):
-            print(f"ERROR: Could not read config file '{config_file}'", file=sys.stderr)
+            logger.error(f"Could not read config file '{config_file}'")
             sys.exit(1)
 
         # Parse [Course] section
@@ -490,16 +495,14 @@ def main() -> None:
     config: AppConfig = AppConfig(args.config)
 
     if str(args.course) not in config.course_numbers:
-        print(
-            f"ERROR: Invalid course '{args.course}'. Expected one of {config.course_numbers}.",
-            file=sys.stderr,
+        logger.error(
+            f"Invalid course '{args.course}'. Expected one of {config.course_numbers}."
         )
         sys.exit(1)
 
     if not (1 <= args.module <= config.num_modules):
-        print(
-            f"ERROR: Invalid module '{args.module}'. Must be between 1 and {config.num_modules}.",
-            file=sys.stderr,
+        logger.error(
+            f"Invalid module '{args.module}'. Must be between 1 and {config.num_modules}."
         )
         sys.exit(1)
 
@@ -510,7 +513,7 @@ def main() -> None:
     try:
         as_of_date = datetime.strptime(f"{month_day_str}-{today_date.year}", "%m-%d-%Y")
     except ValueError:
-        print("ERROR: Invalid date format. Must be MM-DD.", file=sys.stderr)
+        logger.error("Invalid date format. Must be MM-DD.")
         sys.exit(1)
 
     midterm_alert: int = 1 if args.midterm else 0
@@ -519,10 +522,7 @@ def main() -> None:
         f"{config.base_path}/{config.prefix.lower()}{args.course}"
     ).expanduser()
     if not base_path.exists():
-        print(
-            f"ERROR: Base path '{base_path}' does not exist or is not mounted!!!",
-            file=sys.stderr,
-        )
+        logger.error(f"Base path '{base_path}' does not exist or is not mounted!!!")
         sys.exit(1)
 
     grades_file: Optional[pathlib.Path] = None
@@ -537,14 +537,13 @@ def main() -> None:
                 missing_file = file_path
 
     if not (grades_file and missing_file):
-        print(
-            f"ERROR: Missing grades or assignments files for date {month_day_str} in {base_path}.",
-            file=sys.stderr,
+        logger.error(
+            f"Missing grades or assignments files for date {month_day_str} in {base_path}."
         )
         sys.exit(1)
 
-    print(f"Using grade data:              {grades_file}")
-    print(f"Using missing assignment data: {missing_file}")
+    logger.info(f"Using grade data:              {grades_file}")
+    logger.info(f"Using missing assignment data: {missing_file}")
 
     cohort: Cohort = Cohort(
         config,
@@ -560,8 +559,8 @@ def main() -> None:
     out_path: pathlib.Path = base_path / today_date.strftime("status-%Y-%m-%d.csv")
     cohort.generate_report(out_path, today_date)
 
-    print(f"Successfully generated report at: {out_path}")
-    print("All Done! Have a great day!")
+    logger.info(f"Successfully generated report at: {out_path}")
+    logger.info("All Done! Have a great day!")
 
 
 if __name__ == "__main__":
