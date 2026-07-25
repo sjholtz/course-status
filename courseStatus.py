@@ -17,6 +17,7 @@ Example:
 
 Dependencies:
     - Python 3.5+
+    - python-dateutil
     - config.ini file in the working directory
 """
 
@@ -26,12 +27,17 @@ import pathlib
 import argparse
 import configparser
 from datetime import datetime, timedelta
+from dateutil.rrule import MO, TU, WE, TH, FR, SA, SU, WEEKLY, rrule, rruleset
 
-# Enforce Python Version
 if sys.hexversion < 0x3050000:
     print("Must use python version 3.5 or greater.", file=sys.stderr)
     sys.exit(1)
 
+# Map string representations of weekdays from config.ini to dateutil constants
+DAY_MAP = {
+    "Monday": MO, "Tuesday": TU, "Wednesday": WE,
+    "Thursday": TH, "Friday": FR, "Saturday": SA, "Sunday": SU
+}
 
 class AppConfig:
     """
@@ -48,8 +54,12 @@ class AppConfig:
         base_path (str): The root directory where grade files are stored.
         headers (list): CSV column headers for the output report.
         date_format (str): The string format for date representations.
+        raw_dates (list): The Term Start and End Dates strings.
+        raw_ex_dates (list): Holiday and exclusion date strings.
+        due_time_str (str): The string representing module due times (e.g., "5:00 PM").
+        quiz_due_day (str): String representing the day quizzes are due.
+        assign_due_day (str): String representing the day assignments are due.
     """
-
     def __init__(self, config_file="config.ini"):
         self.parser = configparser.ConfigParser()
         if not self.parser.read(config_file):
@@ -58,133 +68,76 @@ class AppConfig:
 
         # Parse [Course] section
         self.prefix = self.parser.get("Course", "Prefix", fallback="CS")
-        self.course_numbers = self.parser.get(
-            "Course", "Numbers", fallback="1151 1411"
-        ).split()
-        self.first_assess_code = self.parser.get(
-            "Course", "First Assess Code", fallback="Q1a"
-        )
-        self.num_modules = self.parser.getint(
-            "Course", "Number of Modules", fallback=14
-        )
+        self.course_numbers = self.parser.get("Course", "Numbers", fallback="1151 1411").split()
+        self.first_assess_code = self.parser.get("Course", "First Assess Code", fallback="Q1a")
+        self.num_modules = self.parser.getint("Course", "Number of Modules", fallback=14)
 
-        raw_non_academic = (
-            self.parser.get(
-                "Course", "Non-Academic Assessments", fallback="Feedback Survey"
-            )
-            .strip()
-            .split("\n")
-        )
+        # Parse non-academic assessments into a list
+        raw_non_academic = self.parser.get("Course", "Non-Academic Assessments", fallback="Feedback Survey").strip().split('\n')
         self.non_academic = [item.strip() for item in raw_non_academic if item.strip()]
 
-        self.quiz_due_day = self.parser.get("Course", "Quiz Due Day", fallback="Friday")
-        self.assign_due_day = self.parser.get(
-            "Course", "Assignment Due Day", fallback="Wednesday"
-        )
+        # Dates and times for dynamic schedule generation
+        self.raw_dates = [d.strip() for d in self.parser.get("Course", "Dates", fallback="1-1\n12-31").strip().split('\n') if d.strip()]
+        self.raw_ex_dates = [d.strip() for d in self.parser.get("Course", "Exclude Dates", fallback="").strip().split('\n') if d.strip()]
+        self.due_time_str = self.parser.get("Course", "Due Time", fallback="5:00 PM").strip()
+        self.quiz_due_day = self.parser.get("Course", "Quiz Due Day", fallback="Friday").strip()
+        self.assign_due_day = self.parser.get("Course", "Assignment Due Day", fallback="Wednesday").strip()
 
-        self.too_late_weeks = self.parser.getint(
-            "Course", "Too Late Offset", fallback=2
-        )
-        self.resubmit_weeks = self.parser.getint(
-            "Course", "Resubmission Deadline Offset", fallback=3
-        )
-        self.base_path = self.parser.get(
-            "Course", "Base Path", fallback="~/Private/grades"
-        )
+        self.too_late_weeks = self.parser.getint("Course", "Too Late Offset", fallback=2)
+        self.resubmit_weeks = self.parser.getint("Course", "Resubmission Deadline Offset", fallback=3)
+        self.base_path = self.parser.get("Course", "Base Path", fallback="~/Private/grades")
 
         # Parse [Mail Merge] section
-        raw_headers = (
-            self.parser.get("Mail Merge", "Headers", fallback="").strip().split("\n")
-        )
+        raw_headers = self.parser.get("Mail Merge", "Headers", fallback="").strip().split('\n')
         self.headers = [h.strip() for h in raw_headers if h.strip()]
-        self.date_format = self.parser.get(
-            "Mail Merge", "Date Format", fallback="%-I:%M %p on %A %-d %B %Y"
-        )
+        self.date_format = self.parser.get("Mail Merge", "Date Format", fallback="%-I:%M %p on %A %-d %B %Y")
 
 
 class CourseModule:
-    """
-    Represents a course module with specific due dates.
-
-    Attributes:
-        number (int): The integer identifier for the module.
-        quiz_date (datetime): The due date of the module's quiz.
-        assignment_date (datetime): The due date of the module's assignment.
-    """
-
+    """Represents a course module with specific due dates."""
     def __init__(self, number, quiz_date=None, assignment_date=None):
         self.number = number
         self.quiz_date = quiz_date
         self.assignment_date = assignment_date
 
     def __str__(self):
-        """Returns a human-readable string representation of the module."""
         return f"Module {self.number}"
 
 
 class Student:
-    """
-    Encapsulates individual student data and calculates their progress relative to the course.
-
-    Attributes:
-        config (AppConfig): Reference to global app configuration.
-        full_name (str): The raw full name from the Canvas roster.
-        last_name (str): Parsed last name.
-        first_name (str): Parsed first name.
-        email (str): The adjusted student email address.
-        missing_assignments (list): A list of missing assignment descriptions.
-    """
-
+    """Encapsulates individual student data and calculates their progress relative to the course."""
     def __init__(self, full_name, orig_email, config):
         self.config = config
         self.full_name = full_name
-
-        # Canvas exports names as "LastName, FirstName"
         self.last_name, self.first_name = full_name.split(", ")
 
+        username, domain = orig_email.split("@")
+        self.email = f"{username}@d.{domain}"
         self.missing_assignments = []
 
     def add_missing_assignment(self, assignment_desc):
-        """Appends a missing assignment description to the student's record."""
         self.missing_assignments.append(assignment_desc)
 
     def get_status(self, current_module):
-        """
-        Evaluates the student's missing work to determine their current status.
-
-        Args:
-            current_module (int): The module the class is currently working on.
-
-        Returns:
-            dict: A dictionary of status metrics (e.g., modules_behind, no_work_done).
-        """
         last_module = current_module
         no_work_done = 0
         nothing_late = 1 if not self.missing_assignments else 0
 
         for desc in self.missing_assignments:
-            # Ignore non-academic assessments:
             if any(non_acad in desc for non_acad in self.config.non_academic):
                 continue
 
             nothing_late = 0
-
-            # Extract the assignment code (e.g., 'Q1a') from the description string
             assign_code = desc.split()[1]
-
-            # The assignment string might contain non-numeric characters (e.g., 'Q1a').
-            # We filter out all non-digits and join them back before casting to an integer.
             assign_str = "".join(ch for ch in assign_code if ch.isdigit())
             try:
                 assign = int(assign_str)
             except ValueError:
                 continue
 
-            # Check if the missing work is the specific first assessment defined in config
             if assign_code.startswith(self.config.first_assess_code):
                 no_work_done = 1
 
-            # Track the furthest module the student has fallen behind on
             if assign < last_module:
                 last_module = assign
 
@@ -197,30 +150,16 @@ class Student:
             "modules_behind": modules_behind,
             "last_module": last_module,
             "no_work_done": no_work_done,
-            "nothing_late": nothing_late,
+            "nothing_late": nothing_late
         }
 
     def __str__(self):
-        """Auto-converts the Student object to a printable identity string."""
         return f"{self.first_name} {self.last_name} <{self.email}>"
 
 
 class Cohort:
-    """
-    Manages a collection of Student objects, parses CSV files, and generates the final report.
-
-    Attributes:
-        config (AppConfig): Reference to global app configuration.
-        course_num (int): The identifier for the current course.
-        current_module (int): The module the course is currently situated in.
-        as_of_date_str (str): The date string representing when data was pulled.
-        midterm_alert (int): Binary flag (1 or 0) indicating a midterm warning.
-        modules (dict): Dictionary mapping module numbers to CourseModule objects.
-    """
-
-    def __init__(
-        self, config, course_num, current_module, as_of_date_str, midterm_alert
-    ):
+    """Manages a collection of Student objects, parses CSV files, and generates the final report."""
+    def __init__(self, config, course_num, current_module, as_of_date_str, midterm_alert, term_year):
         self.config = config
         self.course_num = course_num
         self.current_module = current_module
@@ -231,88 +170,92 @@ class Cohort:
         self.resubmission_offset = timedelta(weeks=self.config.resubmit_weeks)
 
         self._students = {}
-        self.modules = self._initialize_modules()
+        self.modules = self._initialize_modules(term_year)
 
-    def _initialize_modules(self):
+    def _initialize_modules(self, term_year):
         """
-        Constructs the internal dictionary of modules and their strict due dates.
+        Dynamically constructs the internal dictionary of modules and their strict due dates
+        using python-dateutil's rrule based on config.ini term dates and exclusions.
+        """
+        due_time = datetime.strptime(self.config.due_time_str.upper(), "%I:%M %p").time()
 
-        Returns:
-            dict: Mapping of module integer to CourseModule instances.
-        """
+        # Parse term start and end dates
+        if len(self.config.raw_dates) >= 2:
+            start_m, start_d = map(int, self.config.raw_dates[0].split('-'))
+            end_m, end_d = map(int, self.config.raw_dates[1].split('-'))
+        else:
+            start_m, start_d = 1, 1
+            end_m, end_d = 12, 31
+
+        start_dt = datetime(term_year, start_m, start_d, due_time.hour, due_time.minute)
+        end_dt = datetime(term_year, end_m, end_d, due_time.hour, due_time.minute)
+
+        # Accommodate courses that cross into the new year
+        if end_dt < start_dt:
+            end_dt = end_dt.replace(year=term_year + 1)
+
+        # Parse exclusion dates and assign exact times so rruleset.exdate() can match them
+        exdates = []
+        for ex_str in self.config.raw_ex_dates:
+            ex_m, ex_d = map(int, ex_str.split('-'))
+            ex_dt = datetime(term_year, ex_m, ex_d, due_time.hour, due_time.minute)
+            if ex_dt < start_dt and end_dt.year > term_year:
+                ex_dt = ex_dt.replace(year=term_year + 1)
+            exdates.append(ex_dt)
+
+        # Convert strings ("Friday", "Wednesday") to dateutil constants (FR, WE)
+        quiz_day = DAY_MAP.get(self.config.quiz_due_day, FR)
+        assign_day = DAY_MAP.get(self.config.assign_due_day, WE)
+
+        # Setup quiz recurring date rules
+        quiz_rules = rruleset()
+        quiz_rules.rrule(rrule(WEEKLY, byweekday=quiz_day, dtstart=start_dt, until=end_dt))
+        for ex_dt in exdates:
+            quiz_rules.exdate(ex_dt)
+
+        # Setup assignment recurring date rules
+        assign_rules = rruleset()
+        assign_rules.rrule(rrule(WEEKLY, byweekday=assign_day, dtstart=start_dt, until=end_dt))
+        for ex_dt in exdates:
+            assign_rules.exdate(ex_dt)
+
+        # Extract exactly N modules based on the config
+        quiz_dates = list(quiz_rules)[:self.config.num_modules]
+        assign_dates = list(assign_rules)[:self.config.num_modules]
+
         modules = {}
-        quiz_dates = [
-            (1, datetime(2026, 1, 16, hour=17)),
-            (2, datetime(2026, 1, 23, hour=17)),
-            (3, datetime(2026, 1, 30, hour=17)),
-            (4, datetime(2026, 2, 6, hour=17)),
-            (5, datetime(2026, 2, 13, hour=17)),
-            (6, datetime(2026, 2, 20, hour=17)),
-            (7, datetime(2026, 2, 27, hour=17)),
-            (8, datetime(2026, 3, 6, hour=17)),
-            (9, datetime(2026, 3, 20, hour=17)),
-            (10, datetime(2026, 3, 27, hour=17)),
-            (11, datetime(2026, 4, 3, hour=17)),
-            (12, datetime(2026, 4, 10, hour=17)),
-            (13, datetime(2026, 4, 17, hour=17)),
-        ]
-        assignment_dates = [
-            (1, datetime(2026, 1, 21, hour=17)),
-            (2, datetime(2026, 1, 28, hour=17)),
-            (3, datetime(2026, 2, 4, hour=17)),
-            (4, datetime(2026, 2, 11, hour=17)),
-            (5, datetime(2026, 2, 18, hour=17)),
-            (6, datetime(2026, 2, 25, hour=17)),
-            (7, datetime(2026, 3, 4, hour=17)),
-            (8, datetime(2026, 3, 18, hour=17)),
-            (9, datetime(2026, 3, 25, hour=17)),
-            (10, datetime(2026, 4, 1, hour=17)),
-            (11, datetime(2026, 4, 8, hour=17)),
-            (12, datetime(2026, 4, 15, hour=17)),
-            (13, datetime(2026, 4, 22, hour=17)),
-            (14, datetime(2026, 5, 8, hour=17)),
-        ]
+        for i, q_date in enumerate(quiz_dates, 1):
+            modules[i] = CourseModule(i, quiz_date=q_date)
 
-        for q_num, q_date in quiz_dates:
-            modules[q_num] = CourseModule(q_num, quiz_date=q_date)
-        for a_num, a_date in assignment_dates:
-            if a_num not in modules:
-                modules[a_num] = CourseModule(a_num)
-            modules[a_num].assignment_date = a_date
+        for i, a_date in enumerate(assign_dates, 1):
+            if i not in modules:
+                modules[i] = CourseModule(i)
+            modules[i].assignment_date = a_date
 
         return modules
 
     def __iter__(self):
-        """Allows direct iteration over the stored Student objects (e.g., `for student in cohort:`)."""
         return iter(self._students.values())
 
     def get_or_create_student(self, full_name, email):
-        """Retrieves an existing Student by name, or creates and stores a new one if not found."""
         if full_name not in self._students:
             self._students[full_name] = Student(full_name, email, self.config)
         return self._students[full_name]
 
     def load_grades(self, filepath):
-        """Parses the main Canvas grades CSV to populate the initial student roster."""
-        with open(filepath, "r") as f:
+        with open(filepath, 'r') as f:
             reader = csv.reader(f)
-            # Skip the two header rows present in Canvas gradebook exports
-            next(reader)
-            next(reader)
-
+            next(reader); next(reader)
             for row in reader:
                 name = row[0]
-                # Filter out generic or test accounts
                 if "Points Possible" in name or "Student, Test" in name:
                     continue
                 self.get_or_create_student(name, row[3])
 
     def load_missing_work(self, filepath):
-        """Parses the missing assignments CSV and applies missing markers to known students."""
-        with open(filepath, "r") as f:
+        with open(filepath, 'r') as f:
             reader = csv.reader(f)
-            next(reader)  # Skip header row
-
+            next(reader)
             missing_data = [row for row in reader]
             missing_data.sort(key=lambda x: x[0])
 
@@ -322,71 +265,31 @@ class Cohort:
                     self._students[name].add_missing_assignment(row[5])
 
     def _calculate_deadlines(self, today_date):
-        """Determines the global "Too Late" and "Resubmit" deadlines based on today's date.
-
-        This iterates through sorted modules to find the FIRST module
-        deadline that falls strictly BEFORE (today_date -
-        offset). Once found, it locks that module so subsequent, later
-        modules don't overwrite the imminent deadline.
-
-        Args:
-            today_date (datetime): Current date context for calculations.
-
-        Returns:
-            dict: Mapping of penalty deadlines and their formatted dates.
-
-        """
         next_quiz_late = next_quiz_late_date = -1
         next_assign_late = next_assign_late_date = -1
         next_resubmit = next_resubmit_date = -1
 
         for mod_num, mod in sorted(self.modules.items()):
-            if (
-                mod.quiz_date
-                and today_date < mod.quiz_date + self.too_late_offset
-                and next_quiz_late == -1
-            ):
+            if mod.quiz_date and today_date < mod.quiz_date + self.too_late_offset and next_quiz_late == -1:
                 next_quiz_late = mod_num
-                next_quiz_late_date = (mod.quiz_date + self.too_late_offset).strftime(
-                    self.config.date_format
-                )
+                next_quiz_late_date = (mod.quiz_date + self.too_late_offset).strftime(self.config.date_format)
 
             if mod.assignment_date:
-                if (
-                    today_date < mod.assignment_date + self.too_late_offset
-                    and next_assign_late == -1
-                ):
+                if today_date < mod.assignment_date + self.too_late_offset and next_assign_late == -1:
                     next_assign_late = mod_num
-                    next_assign_late_date = (
-                        mod.assignment_date + self.too_late_offset
-                    ).strftime(self.config.date_format)
+                    next_assign_late_date = (mod.assignment_date + self.too_late_offset).strftime(self.config.date_format)
 
-                if (
-                    today_date < mod.assignment_date + self.resubmission_offset
-                    and next_resubmit == -1
-                ):
+                if today_date < mod.assignment_date + self.resubmission_offset and next_resubmit == -1:
                     next_resubmit = mod_num
-                    next_resubmit_date = (
-                        mod.assignment_date + self.resubmission_offset
-                    ).strftime(self.config.date_format)
+                    next_resubmit_date = (mod.assignment_date + self.resubmission_offset).strftime(self.config.date_format)
 
         return {
-            "quiz_late": next_quiz_late,
-            "quiz_late_date": next_quiz_late_date,
-            "assign_late": next_assign_late,
-            "assign_late_date": next_assign_late_date,
-            "resubmit": next_resubmit,
-            "resubmit_date": next_resubmit_date,
+            "quiz_late": next_quiz_late, "quiz_late_date": next_quiz_late_date,
+            "assign_late": next_assign_late, "assign_late_date": next_assign_late_date,
+            "resubmit": next_resubmit, "resubmit_date": next_resubmit_date
         }
 
     def generate_report(self, output_path, today_date):
-        """
-        Compiles all student statuses and global deadlines into the final CSV output.
-
-        Args:
-            output_path (pathlib.Path): The full path to write the output CSV.
-            today_date (datetime): Current date context for calculations.
-        """
         deadlines = self._calculate_deadlines(today_date)
 
         with open(output_path, "w", newline="") as f:
@@ -412,73 +315,37 @@ class Cohort:
                     deadlines["assign_late"],
                     deadlines["assign_late_date"],
                     deadlines["resubmit"],
-                    deadlines["resubmit_date"],
+                    deadlines["resubmit_date"]
                 ]
                 writer.writerow(row)
 
-
 def main():
-    """
-    Main entry point for the script.
-    Parses CLI arguments, sets up paths, orchestrates file parsing, and commands report generation.
-    """
-    parser = argparse.ArgumentParser(
-        description="Process course statuses from Canvas grade files."
-    )
-    parser.add_argument(
-        "-c",
-        "--course",
-        type=int,
-        required=True,
-        help="The course number (e.g., 1151, 1411).",
-    )
-    parser.add_argument(
-        "-m",
-        "--module",
-        type=int,
-        required=True,
-        help="Current module students are working in (integer).",
-    )
-    parser.add_argument(
-        "-d",
-        "--date",
-        type=str,
-        help="Month-day in missing assignments files (MM-DD). Defaults to today.",
-    )
-    parser.add_argument(
-        "--midterm",
-        action="store_true",
-        help="Flag indicating if this run is for a midterm alert.",
-    )
-    parser.add_argument(
-        "--config",
-        type=str,
-        default="config.ini",
-        help="Path to configuration file. Defaults to config.ini.",
-    )
+    parser = argparse.ArgumentParser(description="Process course statuses from Canvas grade files.")
+    parser.add_argument("-c", "--course", type=int, required=True,
+                        help="The course number (e.g., 1151, 1411).")
+    parser.add_argument("-m", "--module", type=int, required=True,
+                        help="Current module students are working in (integer).")
+    parser.add_argument("-d", "--date", type=str,
+                        help="Month-day in missing assignments files (MM-DD). Defaults to today.")
+    parser.add_argument("--midterm", action="store_true",
+                        help="Flag indicating if this run is for a midterm alert.")
+    parser.add_argument("--config", type=str, default="config.ini",
+                        help="Path to configuration file. Defaults to config.ini.")
     args = parser.parse_args()
 
     config = AppConfig(args.config)
 
-    # Validate inputs against configuration
     if str(args.course) not in config.course_numbers:
-        print(
-            f"ERROR: Invalid course '{args.course}'. Expected one of {config.course_numbers}.",
-            file=sys.stderr,
-        )
+        print(f"ERROR: Invalid course '{args.course}'. Expected one of {config.course_numbers}.", file=sys.stderr)
         sys.exit(1)
 
     if not (1 <= args.module <= config.num_modules):
-        print(
-            f"ERROR: Invalid module '{args.module}'. Must be between 1 and {config.num_modules}.",
-            file=sys.stderr,
-        )
+        print(f"ERROR: Invalid module '{args.module}'. Must be between 1 and {config.num_modules}.", file=sys.stderr)
         sys.exit(1)
 
     today_date = datetime.now()
-    month_day_str = args.date if args.date else today_date.strftime("%m-%d")
+    month_day_str = args.date if args.date else today_date.strftime('%m-%d')
 
-    # Ensure the date provided matches the MM-DD format requirement
     try:
         as_of_date = datetime.strptime(f"{month_day_str}-{today_date.year}", "%m-%d-%Y")
     except ValueError:
@@ -487,22 +354,12 @@ def main():
 
     midterm_alert = 1 if args.midterm else 0
 
-    # Setup file paths
-    # Construct base path combining config variables dynamically (e.g., ~/Private/grades/cs1151)
-    base_path = pathlib.Path(
-        f"{config.base_path}/{config.prefix.lower()}{args.course}"
-    ).expanduser()
+    base_path = pathlib.Path(f"{config.base_path}/{config.prefix.lower()}{args.course}").expanduser()
     if not base_path.exists():
-        print(
-            f"ERROR: Base path '{base_path}' does not exist or is not mounted!!!",
-            file=sys.stderr,
-        )
+        print(f"ERROR: Base path '{base_path}' does not exist or is not mounted!!!", file=sys.stderr)
         sys.exit(1)
 
     grades_file = missing_file = None
-
-    # Dynamically search the directory for files matching today's month/day
-    # string and specific prefixes to locate the correct Canvas exports
     for file_path in base_path.iterdir():
         if month_day_str in file_path.name and file_path.suffix == ".csv":
             if "Grades" in file_path.name:
@@ -511,34 +368,21 @@ def main():
                 missing_file = file_path
 
     if not (grades_file and missing_file):
-        print(
-            f"ERROR: Missing grades or assignments files for date {month_day_str} in {base_path}.",
-            file=sys.stderr,
-        )
+        print(f"ERROR: Missing grades or assignments files for date {month_day_str} in {base_path}.", file=sys.stderr)
         sys.exit(1)
 
     print(f"Using grade data:              {grades_file}")
     print(f"Using missing assignment data: {missing_file}")
 
-    cohort = Cohort(
-        config,
-        args.course,
-        args.module,
-        as_of_date.strftime("%-m/%-d/%Y"),
-        midterm_alert,
-    )
-
-    # Load the cohort data
+    cohort = Cohort(config, args.course, args.module, as_of_date.strftime("%-m/%-d/%Y"), midterm_alert, today_date.year)
     cohort.load_grades(grades_file)
     cohort.load_missing_work(missing_file)
 
-    # Generate final output file
     out_path = base_path / today_date.strftime("status-%Y-%m-%d.csv")
     cohort.generate_report(out_path, today_date)
 
     print(f"Successfully generated report at: {out_path}")
     print("All Done! Have a great day!")
-
 
 if __name__ == "__main__":
     main()
