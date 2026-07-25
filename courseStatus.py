@@ -78,9 +78,15 @@ class AppConfig:
 
     def __init__(self, config_file: str = "config.ini") -> None:
         self.parser: configparser.ConfigParser = configparser.ConfigParser()
-        if not self.parser.read(config_file):
+        config_path: pathlib.Path = pathlib.Path(config_file)
+
+        if not config_path.is_file():
             logger.error(f"Could not read config file '{config_file}'")
             sys.exit(1)
+
+        # Utilize pathlib's read_text() to load the configuration
+        config_content: str = config_path.read_text(encoding="utf-8")
+        self.parser.read_string(config_content)
 
         # Parse [Course] section
         self.prefix: str = self.parser.get("Course", "Prefix", fallback="CS")
@@ -359,7 +365,10 @@ class Cohort:
         return self._students[full_name]
 
     def load_grades(self, filepath: Union[str, pathlib.Path]) -> None:
-        with open(filepath, "r") as f:
+        target_path: pathlib.Path = pathlib.Path(filepath)
+
+        # Utilize pathlib's open() for reading
+        with target_path.open("r", encoding="utf-8") as f:
             reader: Any = csv.reader(f)
             next(reader)
             next(reader)
@@ -372,8 +381,11 @@ class Cohort:
         logger.debug(f"Loaded grades for {len(self._students)} students.")
 
     def load_missing_work(self, filepath: Union[str, pathlib.Path]) -> None:
-        missing_count = 0
-        with open(filepath, "r") as f:
+        missing_count: int = 0
+        target_path: pathlib.Path = pathlib.Path(filepath)
+
+        # Utilize pathlib's open() for reading
+        with target_path.open("r", encoding="utf-8") as f:
             reader: Any = csv.reader(f)
             next(reader)
             missing_data: List[List[str]] = [row for row in reader]
@@ -439,7 +451,8 @@ class Cohort:
     def generate_report(self, output_path: pathlib.Path, today_date: datetime) -> None:
         deadlines: Dict[str, Union[int, str]] = self._calculate_deadlines(today_date)
 
-        with open(output_path, "w", newline="") as f:
+        # Utilize pathlib's open() for writing
+        with output_path.open("w", newline="", encoding="utf-8") as f:
             writer: Any = csv.writer(f, dialect="unix")
             writer.writerow(self.config.headers)
 
