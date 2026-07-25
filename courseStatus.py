@@ -21,6 +21,7 @@ Dependencies:
     - config.ini file in the working directory
 """
 
+import os
 import sys
 import csv
 import pathlib
@@ -72,7 +73,7 @@ class AppConfig:
         resubmit_weeks (int): Number of weeks before the resubmission deadline passes.
         base_path (str): The root directory where grade files are stored.
         headers (List[str]): CSV column headers for the output report.
-        date_format (str): The string format for date representations.
+        date_format (str): The string format for date representations (cross-platform safe).
     """
 
     def __init__(self, config_file: str = "config.ini") -> None:
@@ -145,9 +146,15 @@ class AppConfig:
             self.parser.get("Mail Merge", "Headers", fallback="").strip().split("\n")
         )
         self.headers: List[str] = [h.strip() for h in raw_headers if h.strip()]
-        self.date_format: str = self.parser.get(
+
+        # Make custom datetime parsing cross-platform
+        raw_format: str = self.parser.get(
             "Mail Merge", "Date Format", fallback="%-I:%M %p on %A %-d %B %Y"
         )
+        if os.name == "nt":  # Windows environment
+            self.date_format: str = raw_format.replace("%-", "%#")
+        else:  # Unix/Linux/macOS environment
+            self.date_format: str = raw_format.replace("%#", "%-")
 
 
 class CourseModule:
@@ -507,7 +514,9 @@ def main() -> None:
         sys.exit(1)
 
     today_date: datetime = datetime.now()
-    month_day_str: str = args.date if args.date else today_date.strftime("%m-%d")
+    month_day_str: str = (
+        args.date if args.date else today_date.strftime("%m-%d")
+    )  # Standard %m and %d are portable
 
     as_of_date: datetime
     try:
@@ -545,11 +554,14 @@ def main() -> None:
     logger.info(f"Using grade data:              {grades_file}")
     logger.info(f"Using missing assignment data: {missing_file}")
 
+    # Access date properties directly to avoid cross-platform zero-padding issues entirely
+    safe_as_of_date: str = f"{as_of_date.month}/{as_of_date.day}/{as_of_date.year}"
+
     cohort: Cohort = Cohort(
         config,
         args.course,
         args.module,
-        as_of_date.strftime("%-m/%-d/%Y"),
+        safe_as_of_date,
         midterm_alert,
         today_date.year,
     )
