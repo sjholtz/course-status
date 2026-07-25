@@ -13,7 +13,7 @@ Usage:
     python courseStatus.py -c <COURSE_NUM> -m <CURRENT_MODULE> [OPTIONS]
 
 Example:
-    python courseStatus.py -c 1151 -m 4 --date 02-15 --midterm
+    python courseStatus.py -c 1151 -m 4 --date 02-15 --midterm -v
 
 Dependencies:
     - Python 3.6+ (required for PEP 526 variable type annotations)
@@ -28,7 +28,7 @@ import pathlib
 import argparse
 import configparser
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 from typing import List, Dict, Optional, Any, Iterator, Union, cast
 from dateutil.rrule import MO, TU, WE, TH, FR, SA, SU, WEEKLY, rrule, rruleset
 
@@ -151,10 +151,11 @@ class AppConfig:
         raw_format: str = self.parser.get(
             "Mail Merge", "Date Format", fallback="%-I:%M %p on %A %-d %B %Y"
         )
+        self.date_format: str
         if os.name == "nt":  # Windows environment
-            self.date_format: str = raw_format.replace("%-", "%#")
+            self.date_format = raw_format.replace("%-", "%#")
         else:  # Unix/Linux/macOS environment
-            self.date_format: str = raw_format.replace("%#", "%-")
+            self.date_format = raw_format.replace("%#", "%-")
 
 
 class CourseModule:
@@ -211,6 +212,9 @@ class Student:
             try:
                 assign = int(assign_str)
             except ValueError:
+                logger.debug(
+                    f"Ignored non-integer grading code in '{desc}' for {self.email}"
+                )
                 continue
 
             if assign_code.startswith(self.config.first_assess_code):
@@ -266,7 +270,7 @@ class Cohort:
         Dynamically constructs the internal dictionary of modules and their strict due dates
         using python-dateutil's rrule based on config.ini term dates and exclusions.
         """
-        due_time: datetime.time = datetime.strptime(
+        due_time: time = datetime.strptime(
             self.config.due_time_str.upper(), "%I:%M %p"
         ).time()
 
@@ -365,8 +369,10 @@ class Cohort:
                 if "Points Possible" in name or "Student, Test" in name:
                     continue
                 self.get_or_create_student(name, row[3])
+        logger.debug(f"Loaded grades for {len(self._students)} students.")
 
     def load_missing_work(self, filepath: Union[str, pathlib.Path]) -> None:
+        missing_count = 0
         with open(filepath, "r") as f:
             reader: Any = csv.reader(f)
             next(reader)
@@ -378,6 +384,8 @@ class Cohort:
                 name: str = row[0]
                 if name in self._students:
                     self._students[name].add_missing_assignment(row[5])
+                    missing_count += 1
+        logger.debug(f"Assigned {missing_count} missing work records to students.")
 
     def _calculate_deadlines(self, today_date: datetime) -> Dict[str, Union[int, str]]:
         next_quiz_late: int = -1
@@ -497,7 +505,16 @@ def main() -> None:
         default="config.ini",
         help="Path to configuration file. Defaults to config.ini.",
     )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose debug logging."
+    )
+
     args: argparse.Namespace = parser.parse_args()
+
+    # Adjust logger level based on verbose flag
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+        logger.debug("Verbose debug logging enabled.")
 
     config: AppConfig = AppConfig(args.config)
 
