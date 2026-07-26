@@ -17,16 +17,18 @@ def reset_assessment_registry():
 
 def test_assessment_meta_initialization():
     """Test that AssessmentMeta stores times, days, and offsets correctly."""
-    due_time = time(17, 0) # 5:00 PM
+    due_time = time(17, 0)  # 5:00 PM
     due_day = "Friday"
     too_late = timedelta(days=2)
     resubmit = timedelta(days=5)
 
     # With all offsets
-    meta1 = AssessmentMeta(due_time=due_time,
-                           due_day=due_day,
-                           too_late_offset=too_late,
-                           resubmission_offset=resubmit)
+    meta1 = AssessmentMeta(
+        due_time=due_time,
+        due_day=due_day,
+        too_late_offset=too_late,
+        resubmission_offset=resubmit,
+    )
 
     assert meta1.due_time == time(17, 0)
     assert meta1.due_day == "Friday"
@@ -42,22 +44,19 @@ def test_assessment_meta_initialization():
 
 def test_register_type_meta():
     """Test that meta-information is correctly stored in the class registry."""
-    Assessment.register_type_meta("Quiz",
-                                  time(17, 0),
-                                  "Friday",
-                                  timedelta(days=2))
-    Assessment.register_type_meta("Assignment",
-                                  time(23, 59),
-                                  "Wednesday",
-                                  timedelta(days=2),
-                                  timedelta(days=7))
+    Assessment.register_type_meta("Quiz", time(17, 0), "Friday", timedelta(days=2))
+    Assessment.register_type_meta(
+        "Assignment", time(23, 59), "Wednesday", timedelta(days=2), timedelta(days=7)
+    )
 
     assert "Quiz" in Assessment._type_registry
     assert "Assignment" in Assessment._type_registry
 
     assert Assessment._type_registry["Quiz"].due_day == "Friday"
     assert Assessment._type_registry["Quiz"].resubmission_offset is None
-    assert Assessment._type_registry["Assignment"].resubmission_offset == timedelta(days=7)
+    assert Assessment._type_registry["Assignment"].resubmission_offset == timedelta(
+        days=7
+    )
 
 
 def test_assessment_initialization_full_offsets():

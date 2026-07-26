@@ -3,6 +3,7 @@ from pathlib import Path
 
 from courseStatus import AppConfig
 
+
 @pytest.fixture
 def mock_config_file(tmp_path: Path) -> Path:
     """Creates a temporary config.toml file for testing."""
@@ -10,7 +11,8 @@ def mock_config_file(tmp_path: Path) -> Path:
     config_path = tmp_path / "config.toml"
 
     # Write the TOML data incorporating the new nested Assessments structure
-    config_path.write_text("""
+    config_path.write_text(
+        """
     [Course]
     prefix = "CS"
     numbers = [1151, 1411]
@@ -53,21 +55,27 @@ def mock_config_file(tmp_path: Path) -> Path:
     domain = "my.university.edu"
     headers = ["FirstName", "LastName", "Status"]
     date_format = "%Y-%m-%d"
-    """, encoding="utf-8")
+    """,
+        encoding="utf-8",
+    )
 
     return config_path
+
 
 @pytest.fixture
 def app_config(mock_config_file: Path) -> AppConfig:
     """Provides an instantiated AppConfig object based on the mocked TOML file."""
     return AppConfig(str(mock_config_file))
 
-@pytest.fixture(params=[
-    "missingAssignments 2-5-2026.csv",
-    "missingAssignments 02-05-2026.csv",
-    "missingAssignments-2-5-2026.csv",
-    "missingAssignments-02-05-2026.csv"
-])
+
+@pytest.fixture(
+    params=[
+        "missingAssignments 2-5-2026.csv",
+        "missingAssignments 02-05-2026.csv",
+        "missingAssignments-2-5-2026.csv",
+        "missingAssignments-02-05-2026.csv",
+    ]
+)
 def mock_missing_csv_file(request: pytest.FixtureRequest, tmp_path: Path) -> Path:
     """
     Creates a temporary missing assignments CSV file.
@@ -78,10 +86,13 @@ def mock_missing_csv_file(request: pytest.FixtureRequest, tmp_path: Path) -> Pat
     missing_path = tmp_path / file_name
 
     # Write some standard mock CSV data
-    missing_path.write_text("""Student Name,Student ID,Course Name,Course ID,Section Name,Assignment Name,Points Possible, Due Date, Unlock Date
+    missing_path.write_text(
+        """Student Name,Student ID,Course Name,Course ID,Section Name,Assignment Name,Points Possible, Due Date, Unlock Date
 "Doe, John",123,CS1151,999,"001","CS1151 A2: Module 2 Assignment",100,"Feb 4, 2026, 5:00:00 PM CST",
 "Doe, John",123,CS1151,999,"001","CS1151: Feedback Survey",0,"Feb 4, 2026, 5:00:00 PM CST",
 "Smith, Jane",124,CS1151,999,"006","CS1151 Q3d: Module 3 Quiz 4",12,"Feb 4, 2026, 5:00:00 PM CST",
-""", encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
 
     return missing_path

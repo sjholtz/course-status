@@ -10,9 +10,16 @@ def test_appconfig_init(mock_config_file: Path) -> None:
     assert config.prefix == "CS"
     assert config.course_numbers == ["1151", "1411"]
     assert config.num_modules == 14
-    assert Assessment.get_meta("Quizzes").due_time == time(17, 0)
-    assert Assessment.get_meta("Quizzes").due_day == "Friday"
-    assert Assessment.get_meta("Assignments").due_day == "Wednesday"
+
+    quizzes_meta = Assessment.get_meta("Quizzes")
+    assert quizzes_meta is not None
+    assert quizzes_meta.due_time == time(17, 0)
+    assert quizzes_meta.due_day == "Friday"
+
+    assignments_meta = Assessment.get_meta("Assignments")
+    assert assignments_meta is not None
+    assert assignments_meta.due_day == "Wednesday"
+
     assert "Feedback Survey" in config.non_academic
     assert len(config.raw_exclude_dates) == 6
     assert len(config.headers) > 0

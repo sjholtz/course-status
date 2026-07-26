@@ -1,13 +1,12 @@
 from courseStatus import Student, AppConfig
 from typing import Dict, Union
 
+
 def test_student_get_status(app_config: AppConfig) -> None:
     """Tests the get_status logic for calculating modules behind and missing work."""
-    student: Student = Student("Doe, John",
-                               "jdoe@university.edu",
-                               app_config)
+    student: Student = Student("Doe, John", "jdoe@university.edu", app_config)
     student.add_missing_assignment("Assignment Q1a")
-    student.add_missing_assignment("Feedback Survey") # Should be ignored
+    student.add_missing_assignment("Feedback Survey")  # Should be ignored
 
     status: Dict[str, Union[str, int]] = student.get_status(current_module=3)
 

@@ -2,14 +2,17 @@ import pytest
 from pathlib import Path
 from courseStatus import Cohort, AppConfig, Student
 
+
 def test_cohort_initialization_and_student_creation(app_config: AppConfig):
     """Test Cohort creates a Course and manages a dictionary of Students."""
-    cohort = Cohort(config=app_config,
-                    course_num=1151,
-                    current_module=5,
-                    as_of_date_str="2/5/2026",
-                    midterm_alert=0,
-                    term_year=2026)
+    cohort = Cohort(
+        config=app_config,
+        course_num=1151,
+        current_module=5,
+        as_of_date_str="2/5/2026",
+        midterm_alert=0,
+        term_year=2026,
+    )
 
     # 1. Verify internal Course was instantiated
     assert cohort.course is not None
@@ -21,6 +24,7 @@ def test_cohort_initialization_and_student_creation(app_config: AppConfig):
     # 3. Verify retrieving the exact same student string returns the same object
     student_again = cohort.get_or_create_student("Doe, John", "jdoe@example.com")
     assert student is student_again
+
 
 def test_cohort_load_missing_work(app_config: AppConfig, mock_missing_csv_file: Path):
     """Test that CSV missing assignment data is correctly parsed and bound to Students."""
@@ -42,6 +46,7 @@ def test_cohort_load_missing_work(app_config: AppConfig, mock_missing_csv_file: 
     jane = cohort.get_or_create_student("Smith, Jane", "jsmith@example.com")
     assert len(jane.missing_assignments) == 1
     assert "CS1151 Q3d: Module 3 Quiz 4" in jane.missing_assignments
+
 
 # from courseStatus import Cohort, AppConfig
 
