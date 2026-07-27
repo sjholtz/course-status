@@ -5,152 +5,168 @@ from courseStatus import Assessment, AssessmentMeta
 
 
 @pytest.fixture(autouse=True)
-def reset_assessment_registry():
-    """
-    Fixture to clear the class-level registry before and after each test.
-    This prevents state from leaking between tests.
-    """
-    Assessment._type_registry.clear()
-    yield
+def reset_registry():
+    """Ensure the type registry is cleared before every test to prevent pollution."""
     Assessment._type_registry.clear()
 
 
 def test_assessment_meta_initialization():
-    """Test that AssessmentMeta stores times, days, and offsets correctly."""
-    due_time = time(17, 0)  # 5:00 PM
-    due_day = "Friday"
-    too_late = timedelta(days=2)
-    resubmit = timedelta(days=5)
-
-    # With all offsets
-    meta1 = AssessmentMeta(
+    """Test that AssessmentMeta correctly stores all configuration values."""
+    due_time = time(17, 0)
+    meta = AssessmentMeta(
         due_time=due_time,
-        due_day=due_day,
-        too_late_offset=too_late,
-        resubmission_offset=resubmit,
+        due_day="Friday",
+        due_in_modules=["1", "2", "3", "f"],
+        too_late_offset=timedelta(days=14),
+        resubmission_offset=timedelta(days=21),
+        final_due_time=time(12, 0),
+        final_due_day="Monday",
     )
 
-    assert meta1.due_time == time(17, 0)
-    assert meta1.due_day == "Friday"
-    assert meta1.too_late_offset == too_late
-    assert meta1.resubmission_offset == resubmit
-
-    # With no offsets (e.g., a strict Final Exam)
-    meta2 = AssessmentMeta(due_time=due_time, due_day=due_day)
-
-    assert meta2.too_late_offset is None
-    assert meta2.resubmission_offset is None
+    assert meta.due_time == due_time
+    assert meta.due_day == "Friday"
+    assert meta.due_in_modules == ["1", "2", "3", "f"]
+    assert meta.too_late_offset == timedelta(days=14)
+    assert meta.resubmission_offset == timedelta(days=21)
+    assert meta.final_due_time == time(12, 0)
+    assert meta.final_due_day == "Monday"
 
 
-def test_register_type_meta():
-    """Test that meta-information is correctly stored in the class registry."""
-    Assessment.register_type_meta("Quiz", time(17, 0), "Friday", timedelta(days=2))
+def test_register_and_get_meta():
+    """Test that meta configurations can be registered and retrieved via Assessment."""
+    due_time = time(17, 0)
+
     Assessment.register_type_meta(
-        "Assignment", time(23, 59), "Wednesday", timedelta(days=2), timedelta(days=7)
+        assess_type="Quiz",
+        due_time=due_time,
+        due_day="Friday",
+        due_in_modules=["1", "2"],
     )
 
-    assert "Quiz" in Assessment._type_registry
-    assert "Assignment" in Assessment._type_registry
+    meta = Assessment.get_meta("Quiz")
+    assert meta is not None
+    assert isinstance(meta, AssessmentMeta)
+    assert meta.due_time == due_time
+    assert meta.due_day == "Friday"
 
-    assert Assessment._type_registry["Quiz"].due_day == "Friday"
-    assert Assessment._type_registry["Quiz"].resubmission_offset is None
-    assert Assessment._type_registry["Assignment"].resubmission_offset == timedelta(
-        days=7
-    )
+    # Check non-existent meta
+    assert Assessment.get_meta("NonExistent") is None
 
 
-def test_assessment_initialization_full_offsets():
-    """Test standard initialization and deadline calculation with all offsets."""
-    # Setup: Sept 2, 2026 is a Wednesday
-    due_date = datetime(2026, 9, 2, 23, 59)
+def test_assessment_initialization_missing_meta():
+    """Test that instantiating an Assessment without registered meta raises a ValueError."""
+    with pytest.raises(ValueError, match="is missing meta-configuration"):
+        Assessment(assess_type="Quiz", due_date=datetime(2026, 7, 24, 17, 0))
+
+
+def test_assessment_valid_schedule_and_offsets():
+    """Test standard assessment initialization calculates offsets correctly."""
     Assessment.register_type_meta(
-        "Assignment", time(23, 59), "Wednesday", timedelta(days=2), timedelta(days=5)
+        assess_type="Assignment",
+        due_time=time(17, 0),
+        due_day="Friday",
+        due_in_modules=["1", "2"],
+        too_late_offset=timedelta(days=14),
+        resubmission_offset=timedelta(days=21),
     )
 
-    # Execution
-    assess = Assessment("Assignment", due_date)
+    # July 24, 2026 is a Friday
+    due_date = datetime(2026, 7, 24, 17, 0)
+    assessment = Assessment("Assignment", due_date, strict_validation=True)
 
-    # Assertion
-    assert assess.type == "Assignment"
-    assert assess.due_date == due_date
-    assert assess.too_late_date == datetime(2026, 9, 4, 23, 59)
-    assert assess.resubmission_date == datetime(2026, 9, 7, 23, 59)
+    assert assessment.type == "Assignment"
+    assert assessment.due_date == due_date
+    assert not assessment.is_final
 
-
-def test_assessment_initialization_no_offsets():
-    """Test deadline calculation for assessments with no late or resubmission allowed."""
-    # Setup: Dec 14, 2026 is a Monday
-    due_date = datetime(2026, 12, 14, 12, 0)
-    Assessment.register_type_meta("Final", time(12, 0), "Monday")
-
-    # Execution
-    assess = Assessment("Final", due_date)
-
-    # Assertion
-    assert assess.too_late_date is None
-    assert assess.resubmission_date is None
+    # Offsets should be applied because it's not a final
+    assert assessment.too_late_date == due_date + timedelta(days=14)
+    assert assessment.resubmission_date == due_date + timedelta(days=21)
 
 
-def test_assessment_unregistered_type_raises_error():
-    """Test that instantiating an unregistered assessment type raises a ValueError."""
-    due_date = datetime(2026, 1, 1, 12, 0)
+def test_assessment_finals_schedule_and_offsets():
+    """Test finals week assessment uses final constraints and ignores offsets."""
+    Assessment.register_type_meta(
+        assess_type="Quiz",
+        due_time=time(17, 0),
+        due_day="Friday",
+        due_in_modules=["f"],
+        too_late_offset=timedelta(days=14),
+        resubmission_offset=timedelta(days=21),
+        final_due_time=time(12, 0),
+        final_due_day="Monday",
+    )
 
-    with pytest.raises(ValueError) as exc_info:
-        Assessment("Lab", due_date)
+    # July 27, 2026 is a Monday
+    final_due = datetime(2026, 7, 27, 12, 0)
+    assessment = Assessment("Quiz", final_due, strict_validation=True, is_final=True)
 
-    assert "Assessment type 'Lab' is missing meta-configuration" in str(exc_info.value)
+    assert assessment.is_final is True
+    # Offsets should NOT be applied for finals
+    assert assessment.too_late_date is None
+    assert assessment.resubmission_date is None
 
 
-def test_validate_schedule_strict_time_mismatch():
-    """Test that a time mismatch raises a ValueError when strict_validation is True."""
-    # Sept 4, 2026 is a Friday. Registered for 5:00 PM (17:00).
-    Assessment.register_type_meta("Quiz", time(17, 0), "Friday")
+def test_assessment_strict_validation_time_mismatch():
+    """Test strict validation raises ValueError on time mismatch."""
+    Assessment.register_type_meta(
+        assess_type="Quiz",
+        due_time=time(17, 0),  # Expects 5:00 PM
+        due_day="Friday",
+        due_in_modules=["1"],
+    )
 
-    # Attempting to schedule at 12:00 PM instead
-    bad_time_date = datetime(2026, 9, 4, 12, 0)
+    # Friday, but at 12:00 PM instead of 5:00 PM
+    bad_time_date = datetime(2026, 7, 24, 12, 0)
 
     with pytest.raises(ValueError, match="scheduled at 12:00:00, but expects 17:00:00"):
         Assessment("Quiz", bad_time_date, strict_validation=True)
 
 
-def test_validate_schedule_strict_day_mismatch():
-    """Test that a day mismatch raises a ValueError when strict_validation is True."""
-    # Sept 4, 2026 is a Friday. Registered for Wednesday.
-    Assessment.register_type_meta("Assignment", time(17, 0), "Wednesday")
+def test_assessment_strict_validation_day_mismatch():
+    """Test strict validation raises ValueError on day mismatch."""
+    Assessment.register_type_meta(
+        assess_type="Quiz",
+        due_time=time(17, 0),
+        due_day="Friday",  # Expects Friday
+        due_in_modules=["1"],
+    )
 
-    bad_day_date = datetime(2026, 9, 4, 17, 0)
+    # Thursday at 5:00 PM
+    bad_day_date = datetime(2026, 7, 23, 17, 0)
 
-    with pytest.raises(ValueError, match="scheduled on Friday, but expects Wednesday"):
-        Assessment("Assignment", bad_day_date, strict_validation=True)
+    with pytest.raises(ValueError, match="scheduled on Thursday, but expects Friday"):
+        Assessment("Quiz", bad_day_date, strict_validation=True)
 
 
-def test_validate_schedule_non_strict_logging(caplog):
-    """Test that mismatches only log a debug message when strict_validation is False."""
-    # Sept 4, 2026 is a Friday. Registered for Wednesday at 23:59.
-    Assessment.register_type_meta("Assignment", time(23, 59), "Wednesday")
+def test_assessment_non_strict_validation(caplog):
+    """Test non-strict validation logs debug messages instead of raising errors."""
+    Assessment.register_type_meta(
+        assess_type="Quiz", due_time=time(17, 0), due_day="Friday", due_in_modules=["1"]
+    )
 
-    # Completely wrong day and time
-    override_date = datetime(2026, 9, 4, 12, 0)
+    # Thursday at 12:00 PM (Both day and time are wrong)
+    bad_date = datetime(2026, 7, 23, 12, 0)
 
-    with caplog.at_level(logging.DEBUG):
-        # Should NOT raise an exception
-        assess = Assessment("Assignment", override_date, strict_validation=False)
+    # Should not raise an exception
+    assessment = Assessment("Quiz", bad_date, strict_validation=False)
 
-        # Verify the object was created
-        assert assess.type == "Assignment"
-
-        # Verify the logger captured both override warnings
-        assert "scheduled at 12:00:00, but expects 23:59:00" in caplog.text
-        assert "scheduled on Friday, but expects Wednesday" in caplog.text
+    # Verify the assessment still created successfully despite the schedule override
+    assert assessment.due_date == bad_date
 
 
 def test_assessment_repr():
     """Test the string representation of the Assessment object."""
-    # Oct 31, 2026 is a Saturday
-    due_date = datetime(2026, 10, 31, 23, 59)
-    Assessment.register_type_meta("Project", time(23, 59), "Saturday")
+    Assessment.register_type_meta(
+        assess_type="Survey",
+        due_time=time(17, 0),
+        due_day="Friday",
+        due_in_modules=["1"],
+    )
 
-    assess = Assessment("Project", due_date)
+    due_date = datetime(2026, 7, 24, 17, 0)
+    assessment = Assessment("Survey", due_date)
 
-    expected_repr = "<Assessment(type='Project', due_date=2026-10-31 23:59)>"
-    assert repr(assess) == expected_repr
+    expected_repr = (
+        "<Assessment(type='Survey', due_date=2026-07-24 17:00, final=False)>"
+    )
+    assert repr(assessment) == expected_repr

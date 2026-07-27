@@ -1,6 +1,5 @@
 import pytest
 from pathlib import Path
-
 from courseStatus import AppConfig
 
 
@@ -10,7 +9,7 @@ def mock_config_file(tmp_path: Path) -> Path:
     # tmp_path is a built-in pytest fixture that provides a temporary directory
     config_path = tmp_path / "config.toml"
 
-    # Write the TOML data incorporating the new nested Assessments structure
+    # Write the TOML data incorporating the new nested Assessments structur
     config_path.write_text(
         """
     [Course]
@@ -18,30 +17,40 @@ def mock_config_file(tmp_path: Path) -> Path:
     numbers = [1151, 1411]
     first_assess_code = "Q1a"
     number_of_modules = 14
-        [Course.Dates]
-        dates = ["1-5", "4-24"]
-        final_dates = ["4-27", "5-1"]
-        exclude_dates = ["1-12", "3-9", "3-10", "3-11", "3-12", "3-13"]
-        [Course.Assessments]
-        non_academic_assessments = ["Feedback Survey"]
-            [Course.Assessments.Quizzes]
-            due_time = "5:00 PM"
-            due_day = "Friday"
-            too_late_deadline_offset = 14
-            [Course.Assessments.Assignments]
-            due_time = "11:59 PM"
-            due_day = "Wednesday"
-            too_late_deadline_offset = 14
-            resubmission_deadline_offset = 21
-            [Course.Assessments.Final]
-            due_time = "12:00 PM"
-            due_day = "Monday"
-
     ignored_students = [
         "Points Possible",
         "Student, Test",
         "Test Student"
     ]
+    [Course.Dates]
+    dates = ["1-5", "4-24"]
+    final_dates = ["4-27", "5-1"]
+    exclude_dates = ["1-12", "3-9", "3-10", "3-11", "3-12", "3-13"]
+
+    [Course.Assessments]
+    non_academic_assessments = ["Feedback Survey"]
+
+    [Course.Assessments.Quizzes]
+    due_time = "5:00 PM"
+    due_day = "Friday"
+    too_late_deadline_offset = 14
+    # Shorthand tests: 1, 2, 3, 5, 6, 13, 14
+    due_in_modules = ["-3", "5-6", "13-14"]
+
+    [Course.Assessments.Assignments]
+    due_time = "11:59 PM"
+    due_day = "Wednesday"
+    too_late_deadline_offset = 14
+    resubmission_deadline_offset = 21
+    # Full span
+    due_in_modules = ["1-14"]
+
+    [Course.Assessments.Final]
+    due_time = "12:00 PM"
+    due_day = "Monday"
+    due_in_modules = ["f"]
+    final_due_time = "12:00 PM"
+    final_due_day = "Monday"
 
     [System]
     base_path = "~/Private/grades"
