@@ -61,13 +61,19 @@ class AssessmentMeta:
         self,
         due_time: time,
         due_day: str,
+        due_in_modules: List[str],
         too_late_offset: Optional[timedelta] = None,
         resubmission_offset: Optional[timedelta] = None,
+        final_due_time: Optional[time] = None,
+        final_due_day: Optional[str] = None,
     ) -> None:
         self.due_time: time = due_time
         self.due_day: str = due_day
+        self.due_in_modules: List[str] = due_in_modules
         self.too_late_offset: Optional[timedelta] = too_late_offset
         self.resubmission_offset: Optional[timedelta] = resubmission_offset
+        self.final_due_time: Optional[time] = final_due_time
+        self.final_due_day: Optional[str] = final_due_day
 
 
 class Assessment:
@@ -82,12 +88,21 @@ class Assessment:
         assess_type: str,
         due_time: time,
         due_day: str,
+        due_in_modules: List[str],
         too_late_offset: Optional[timedelta] = None,
         resubmission_offset: Optional[timedelta] = None,
+        final_due_time: Optional[time] = None,
+        final_due_day: Optional[str] = None,
     ) -> None:
         """Registers the meta-information for a specific assessment type."""
         cls._type_registry[assess_type] = AssessmentMeta(
-            due_time, due_day, too_late_offset, resubmission_offset
+            due_time,
+            due_day,
+            due_in_modules,
+            too_late_offset,
+            resubmission_offset,
+            final_due_time,
+            final_due_day,
         )
 
     @classmethod
@@ -95,10 +110,15 @@ class Assessment:
         return cls._type_registry.get(assess_type)
 
     def __init__(
-        self, assess_type: str, due_date: datetime, strict_validation: bool = False
+        self,
+        assess_type: str,
+        due_date: datetime,
+        strict_validation: bool = False,
+        is_final: bool = False,
     ) -> None:
         self.type: str = assess_type
         self.due_date: datetime = due_date
+        self.is_final: bool = is_final
 
         # Retrieve the meta-information for this specific assessment type
         meta: Optional[AssessmentMeta] = self._type_registry.get(self.type)
@@ -108,39 +128,49 @@ class Assessment:
             )
 
         # Validate the schedule
-        self._validate_schedule(meta, strict_validation)
+        self._validate_schedule(meta, strict_validation, self.is_final)
 
         self.too_late_date: Optional[datetime] = None
         self.resubmission_date: Optional[datetime] = None
 
-        # Calculate deadline attributes dynamically based on the
-        # stored durations
-        if meta.too_late_offset is not None:
-            self.too_late_date = self.due_date + meta.too_late_offset
+        # Calculate deadline attributes dynamically based on the stored durations.
+        # Only apply these offsets if this is NOT a finals week assessment.
+        if not self.is_final:
+            if meta.too_late_offset is not None:
+                self.too_late_date = self.due_date + meta.too_late_offset
 
-        if meta.resubmission_offset is not None:
-            self.resubmission_date = self.due_date + meta.resubmission_offset
+            if meta.resubmission_offset is not None:
+                self.resubmission_date = self.due_date + meta.resubmission_offset
 
-    def _validate_schedule(self, meta: AssessmentMeta, strict: bool) -> None:
+    def _validate_schedule(
+        self, meta: AssessmentMeta, strict: bool, is_final: bool
+    ) -> None:
         """Validates that the provided due_date aligns with the registered meta rules."""
 
+        expected_time = (
+            meta.final_due_time if is_final and meta.final_due_time else meta.due_time
+        )
+        expected_day = (
+            meta.final_due_day if is_final and meta.final_due_day else meta.due_day
+        )
+
         # Validate time
-        if self.due_date.time() != meta.due_time:
-            msg = f"{self.type} scheduled at {self.due_date.time()}, but expects {meta.due_time}."
+        if self.due_date.time() != expected_time:
+            msg = f"{self.type} scheduled at {self.due_date.time()}, but expects {expected_time}."
             if strict:
                 raise ValueError(msg)
             logger.debug(f"Schedule override: {msg}")
 
-        # Validate Day of Week (strftime('%A') returns the full weekday name)
+        # Validate day of week (strftime('%A') returns the full weekday name)
         actual_day = self.due_date.strftime("%A")
-        if actual_day != meta.due_day:
-            msg = f"{self.type} scheduled on {actual_day}, but expects {meta.due_day}."
+        if actual_day != expected_day:
+            msg = f"{self.type} scheduled on {actual_day}, but expects {expected_day}."
             if strict:
                 raise ValueError(msg)
             logger.debug(f"Schedule override: {msg}")
 
     def __repr__(self) -> str:
-        return f"<Assessment(type='{self.type}', due_date={self.due_date.strftime('%Y-%m-%d %H:%M')})>"
+        return f"<Assessment(type='{self.type}', due_date={self.due_date.strftime('%Y-%m-%d %H:%M')}, final={self.is_final})>"
 
 
 class AppConfig:
@@ -164,9 +194,6 @@ class AppConfig:
         course_data: Dict[str, Any] = config_data.get("Course", {})
         dates_data: Dict[str, Any] = course_data.get("Dates", {})
         assessment_data: Dict[str, Any] = course_data.get("Assessments", {})
-        quizzes_data: Dict[str, Any] = assessment_data.get("Quizzes", {})
-        assignments_data: Dict[str, Any] = assessment_data.get("Assignments", {})
-        final_data: Dict[str, Any] = assessment_data.get("Final", {})
         system_data: Dict[str, Any] = config_data.get("System", {})
         mail_merge_data: Dict[str, Any] = config_data.get("Mail_Merge", {})
 
@@ -187,7 +214,7 @@ class AppConfig:
             "ignored_students", ["Points Possible", "Student, Test"]
         )
 
-        # Base Dates
+        # Base dates
         self.raw_dates: List[str] = dates_data.get("dates", ["1-1", "12-31"])
         self.raw_exclude_dates: List[str] = dates_data.get("exclude_dates", [])
         self.raw_final_dates: List[str] = dates_data.get("final_dates", [])
@@ -227,7 +254,7 @@ class AppConfig:
         else:  # Unix/Linux/macOS environment
             self.date_format = raw_format.replace("%#", "%-")
 
-        # Parse and Register Assessment Configurations
+        # Parse and register assessment configurations
         self._load_assessments(course_data.get("Assessments", {}))
 
     def _load_assessments(self, assessments_data: Dict[str, Any]) -> None:
@@ -238,15 +265,15 @@ class AppConfig:
 
         for assess_type, assess_config in assessments_data.items():
             if not isinstance(assess_config, dict):
-                logger.warning(f"Skipping invalid assessment entry: '{assess_type}'")
                 continue
 
             raw_time: Optional[str] = assess_config.get("due_time")
             due_day: Optional[str] = assess_config.get("due_day")
+            due_in_modules: Optional[List[str]] = assess_config.get("due_in_modules")
 
-            if not raw_time or not due_day:
+            if raw_time is None or due_day is None or due_in_modules is None:
                 logger.error(
-                    f"Assessment '{assess_type}' is missing required 'due_time' or 'due_day' in config.toml."
+                    f"Assessment '{assess_type}' is missing required 'due_time', 'due_day', or 'due_in_modules'."
                 )
                 sys.exit(1)
 
@@ -262,8 +289,23 @@ class AppConfig:
                 timedelta(days=rs_offset) if rs_offset is not None else None
             )
 
+            final_due_time_raw: Optional[str] = assess_config.get("final_due_time")
+            final_due_day: Optional[str] = assess_config.get("final_due_day")
+            final_due_time: Optional[time] = (
+                datetime.strptime(final_due_time_raw.upper(), "%I:%M %p").time()
+                if final_due_time_raw
+                else None
+            )
+
             Assessment.register_type_meta(
-                assess_type, parsed_time, due_day, too_late, resubmit
+                assess_type,
+                parsed_time,
+                due_day,
+                due_in_modules,
+                too_late,
+                resubmit,
+                final_due_time,
+                final_due_day,
             )
 
     def _validate_dates(self) -> None:
@@ -300,8 +342,8 @@ class AppConfig:
 class CourseModule:
     """Holds a singular module and its associated assessments."""
 
-    def __init__(self, number: int) -> None:
-        self.number: int = number
+    def __init__(self, number: Union[int, str]) -> None:
+        self.number: Union[int, str] = number
         self.assessments: Dict[str, Assessment] = {}
 
     def add_assessment(self, assess: Assessment) -> None:
@@ -320,20 +362,40 @@ class Course:
     def __init__(self, config: AppConfig, year: int) -> None:
         self.config: AppConfig = config
         self.year: int = year
-        self.modules: Dict[int, CourseModule] = {}
+        self.modules: Dict[Union[int, str], CourseModule] = {}
         self._initialize_modules()
 
-    def _initialize_modules(self) -> None:
+    def _parse_term_dates(self) -> tuple[datetime, datetime]:
+        """Parses and calculates the base term start and end dates[cite: 2]."""
         start_m, start_d = map(int, self.config.raw_dates[0].split("-"))
         end_m, end_d = map(int, self.config.raw_dates[1].split("-"))
 
-        # Build base term dates (times will be adjusted per assessment type)
         base_start: datetime = datetime(self.year, start_m, start_d)
         base_end: datetime = datetime(self.year, end_m, end_d)
+
         if base_end < base_start:
             base_end = base_end.replace(year=self.year + 1)
 
-        # Parse exclusion dates
+        return base_start, base_end
+
+    def _parse_finals_dates(self, base_start: datetime) -> tuple[datetime, datetime]:
+        """Parses and calculates the finals week start and end dates[cite: 2]."""
+        f_start_m, f_start_d = map(int, self.config.raw_final_dates[0].split("-"))
+        f_end_m, f_end_d = map(int, self.config.raw_final_dates[1].split("-"))
+
+        final_start: datetime = datetime(self.year, f_start_m, f_start_d)
+        final_end: datetime = datetime(self.year, f_end_m, f_end_d)
+
+        if final_end < final_start:
+            final_end = final_end.replace(year=self.year + 1)
+        if final_start < base_start and final_start.month < base_start.month:
+            final_start = final_start.replace(year=self.year + 1)
+            final_end = final_end.replace(year=self.year + 1)
+
+        return final_start, final_end
+
+    def _parse_exclusion_dates(self, base_start: datetime, base_end: datetime) -> List[datetime]:
+        """Parses individual exclusion dates and handles term wrapping[cite: 2]."""
         exdates: List[datetime] = []
         for ex_str in self.config.raw_exclude_dates:
             ex_m, ex_d = map(int, ex_str.split("-"))
@@ -341,46 +403,120 @@ class Course:
             if ex_dt < base_start and base_end.year > self.year:
                 ex_dt = ex_dt.replace(year=self.year + 1)
             exdates.append(ex_dt)
+        return exdates
 
-        # Iterate over all registered assessment types to dynamically build schedules
+    def _expand_module_ranges(self, due_in_modules: List[str]) -> List[str]:
+        """Expands shorthand configuration ranges (e.g., '1-14', '-3', '13-') into explicit string identifiers[cite: 4]."""
+        expanded: List[str] = []
+
+        for mod_val in due_in_modules:
+            mod_val = mod_val.strip().lower()
+
+            if mod_val == "f":
+                expanded.append("f")
+            elif "-" in mod_val:
+                parts = mod_val.split("-")
+                start_str = parts[0].strip()
+                end_str = parts[1].strip() if len(parts) > 1 else ""
+
+                try:
+                    # Default to 1 if no start is provided (e.g., "-3")[cite: 4]
+                    start = int(start_str) if start_str else 1
+                    # Default to total modules if no end is provided (e.g., "13-")[cite: 4]
+                    end = int(end_str) if end_str else self.config.num_modules
+
+                    for i in range(start, end + 1):
+                        expanded.append(str(i))
+                except ValueError:
+                    logger.warning(f"Invalid module range format '{mod_val}'. Skipping.")
+            else:
+                expanded.append(mod_val)
+
+        return expanded
+
+    def _generate_assessment_dates(self, meta: AssessmentMeta, start: datetime, end: datetime, exdates: List[datetime]) -> List[datetime]:
+        """Generates the standard weekly recurrence rules for the regular term[cite: 2]."""
+        due_day_const = DAY_MAP.get(meta.due_day, FR)
+        type_start = start.replace(hour=meta.due_time.hour, minute=meta.due_time.minute)
+        type_end = end.replace(hour=meta.due_time.hour, minute=meta.due_time.minute)
+
+        rules: rruleset = rruleset()
+        rules.rrule(
+            rrule(WEEKLY, byweekday=due_day_const, dtstart=type_start, until=type_end)
+        )
+
+        for ex_dt in exdates:
+            rules.exdate(ex_dt.replace(hour=meta.due_time.hour, minute=meta.due_time.minute))
+
+        return list(rules)[: self.config.num_modules]
+
+    def _schedule_final_assessment(self, assess_type: str, meta: AssessmentMeta, final_start: datetime, final_end: datetime) -> None:
+        """Determines the specific final week date and assigns it to the 'f' module[cite: 2]."""
+        if not meta.final_due_day or not meta.final_due_time:
+            logger.error(f"Assessment '{assess_type}' specifies 'f' but is missing final_due_day or final_due_time.")
+            sys.exit(1)
+
+        final_day_const = DAY_MAP.get(meta.final_due_day, FR)
+        f_start = final_start.replace(hour=meta.final_due_time.hour, minute=meta.final_due_time.minute)
+        f_end = final_end.replace(hour=meta.final_due_time.hour, minute=meta.final_due_time.minute)
+
+        f_rules = rrule(WEEKLY, byweekday=final_day_const, dtstart=f_start, until=f_end)
+        f_dates = list(f_rules)
+
+        if not f_dates:
+            logger.error(f"Could not find a {meta.final_due_day} during finals week for {assess_type}.")
+            sys.exit(1)
+
+        f_dt = f_dates[0]
+
+        if "f" not in self.modules:
+            self.modules["f"] = CourseModule("f")
+        self.modules["f"].add_assessment(Assessment(assess_type, f_dt, is_final=True))
+
+    def _schedule_standard_assessment(self, assess_type: str, mod_val: str, type_dates: List[datetime]) -> None:
+        """Matches a standard assessment with its corresponding date and assigns it to a numbered module[cite: 2]."""
+        try:
+            mod_int = int(mod_val)
+        except ValueError:
+            logger.warning(f"Invalid module identifier '{mod_val}' in {assess_type} config. Skipping.")
+            return
+
+        if 1 <= mod_int <= len(type_dates):
+            if mod_int not in self.modules:
+                self.modules[mod_int] = CourseModule(mod_int)
+            self.modules[mod_int].add_assessment(Assessment(assess_type, type_dates[mod_int - 1]))
+
+    def _initialize_modules(self) -> None:
+        """Coordinates the initialization of all modules and their respective assessments[cite: 2]."""
+        base_start, base_end = self._parse_term_dates()
+        final_start, final_end = self._parse_finals_dates(base_start)
+        exdates = self._parse_exclusion_dates(base_start, base_end)
+
         for assess_type, meta in Assessment._type_registry.items():
-            due_day_const = DAY_MAP.get(meta.due_day, FR)
+            if not meta.due_in_modules:
+                continue
 
-            type_start = base_start.replace(
-                hour=meta.due_time.hour, minute=meta.due_time.minute
-            )
-            type_end = base_end.replace(
-                hour=meta.due_time.hour, minute=meta.due_time.minute
-            )
+            # First, expand any shorthand ranges specified in the config[cite: 4]
+            expanded_modules = self._expand_module_ranges(meta.due_in_modules)
+            type_dates = self._generate_assessment_dates(meta, base_start, base_end, exdates)
 
-            rules: rruleset = rruleset()
-            rules.rrule(
-                rrule(
-                    WEEKLY, byweekday=due_day_const, dtstart=type_start, until=type_end
-                )
-            )
+            # Map the parsed modules to their calculated schedules
+            for mod_val in expanded_modules:
+                if mod_val == "f":
+                    self._schedule_final_assessment(assess_type, meta, final_start, final_end)
+                else:
+                    self._schedule_standard_assessment(assess_type, mod_val, type_dates)
 
-            for ex_dt in exdates:
-                # Align exclusion date with the assessment time
-                rules.exdate(
-                    ex_dt.replace(hour=meta.due_time.hour, minute=meta.due_time.minute)
-                )
-
-            type_dates: List[datetime] = list(rules)[: self.config.num_modules]
-
-            # Populate Modules
-            for i, dt in enumerate(type_dates, 1):
-                if i not in self.modules:
-                    self.modules[i] = CourseModule(i)
-                self.modules[i].add_assessment(Assessment(assess_type, dt))
-
-    def get_module(self, number: int) -> Optional[CourseModule]:
+    def get_module(self, number: Union[int, str]) -> Optional[CourseModule]:
         return self.modules.get(number)
 
     def __iter__(self) -> Iterator[CourseModule]:
-        return iter(sorted(self.modules.values(), key=lambda m: m.number))
-
-
+        return iter(
+            sorted(
+                self.modules.values(),
+                key=lambda m: float("inf") if m.number == "f" else m.number,
+            )
+        )
 class Student:
     """Encapsulates individual student data and calculates their progress relative to the course."""
 
@@ -557,11 +693,11 @@ class Cohort:
                     self.current_module,
                     cast(int, status["no_work_done"]),
                     cast(int, status["nothing_late"]),
-                    cast(int, deadlines["quiz_late"]),
+                    cast(Union[int, str], deadlines["quiz_late"]),
                     cast(str, deadlines["quiz_late_date"]),
-                    cast(int, deadlines["assign_late"]),
+                    cast(Union[int, str], deadlines["assign_late"]),
                     cast(str, deadlines["assign_late_date"]),
-                    cast(int, deadlines["resubmit"]),
+                    cast(Union[int, str], deadlines["resubmit"]),
                     cast(str, deadlines["resubmit_date"]),
                 ]
                 writer.writerow(row)

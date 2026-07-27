@@ -1,9 +1,54 @@
-
 [Course]
 prefix = "CS"
 numbers = [1151, 1411]
 first_assess_code = "Q1a"
 number_of_modules = 14
+
+    [Course.Dates]
+    # Dates MUST be in the form MM-DD, MM-D, M-DD, or M-D
+    # Term start and end dates, excluding finals week
+    dates = [
+        "5-4",
+        "9-1"
+    ]
+    # Finals week start and end dates
+    final_dates = [
+        "9-4",
+        "9-8"
+    ]
+    # Term dates that are normally class dates, where no class is held
+    exclude_dates = [
+        "5-19",
+        "7-9",
+        "7-10",
+        "7-11",
+        "7-12",
+        "7-13"
+    ]
+
+    [Course.Assessments]
+    non_academic = [
+        "Feedback Survey",
+        "Introductory Quiz"
+    ]
+        [Course.Assessments.Quizzes]
+        due_time = "5:00 PM"
+        due_day = "Friday"
+        # Days until too late to turn in
+        too_late_deadline_offset = 14
+        due_in_modules = ["1", "2", "3", "4", "5", "f"]
+        final_due_time = "12:00 PM"
+        final_due_day = "Monday"
+        [Course.Assessments.Assignments]
+        due_time = "5:00 PM"
+        due_day = "Wednesday"
+        # Days until too late to turn in
+        too_late_deadline_offset = 14
+        # Days until too late to resubmit updated solution
+        resubmission_deadline_offset = 21
+        due_in_modules = ["1", "2", "5", "f"]
+        final_due_time = "5:00 PM"
+        final_due_day = "Friday"
 
 # Exact names or substrings in the Canvas export Name column to ignore
 ignored_students = [
@@ -11,49 +56,6 @@ ignored_students = [
     "Student, Test",
     "Test Student"
 ]
-
-[Course.Dates]
-# Dates MUST be in the form MM-DD, MM-D, M-DD, or M-D
-# Term start and end dates, excluding finals week
-dates = [
-    "5-4",
-    "9-1"
-]
-# Finals week start and end dates
-final_dates = [
-    "9-4",
-    "9-8"
-]
-# Term dates that are normally class dates, where no class is held
-exclude_dates = [
-    "5-19",
-    "7-9",
-    "7-10",
-    "7-11",
-    "7-12",
-    "7-13"
-]
-
-[Course.Assessments]
-non_academic = [
-    "Feedback Survey",
-    "Introductory Quiz"
-]
-[Course.Assessments.Quizzes]
-due_time = "5:00 PM"
-due_day = "Friday"
-# Days until too late to turn in
-too_late_deadline_offset = 14
-[Course.Assessments.Assignments]
-due_time = "5:00 PM"
-due_day = "Wednesday"
-# Days until too late to turn in
-too_late_deadline_offset = 14
-# Days until too late to resubmit updated solution
-resubmission_deadline_offset = 21
-[Course.Assessments.Final]
-due_time = "5:00 PM"
-due_day = "Friday"
 
 [System]
 base_path = "~/Private/grades"
