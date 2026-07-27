@@ -394,7 +394,9 @@ class Course:
 
         return final_start, final_end
 
-    def _parse_exclusion_dates(self, base_start: datetime, base_end: datetime) -> List[datetime]:
+    def _parse_exclusion_dates(
+        self, base_start: datetime, base_end: datetime
+    ) -> List[datetime]:
         """Parses individual exclusion dates and handles term wrapping[cite: 2]."""
         exdates: List[datetime] = []
         for ex_str in self.config.raw_exclude_dates:
@@ -428,13 +430,21 @@ class Course:
                     for i in range(start, end + 1):
                         expanded.append(str(i))
                 except ValueError:
-                    logger.warning(f"Invalid module range format '{mod_val}'. Skipping.")
+                    logger.warning(
+                        f"Invalid module range format '{mod_val}'. Skipping."
+                    )
             else:
                 expanded.append(mod_val)
 
         return expanded
 
-    def _generate_assessment_dates(self, meta: AssessmentMeta, start: datetime, end: datetime, exdates: List[datetime]) -> List[datetime]:
+    def _generate_assessment_dates(
+        self,
+        meta: AssessmentMeta,
+        start: datetime,
+        end: datetime,
+        exdates: List[datetime],
+    ) -> List[datetime]:
         """Generates the standard weekly recurrence rules for the regular term[cite: 2]."""
         due_day_const = DAY_MAP.get(meta.due_day, FR)
         type_start = start.replace(hour=meta.due_time.hour, minute=meta.due_time.minute)
@@ -446,25 +456,41 @@ class Course:
         )
 
         for ex_dt in exdates:
-            rules.exdate(ex_dt.replace(hour=meta.due_time.hour, minute=meta.due_time.minute))
+            rules.exdate(
+                ex_dt.replace(hour=meta.due_time.hour, minute=meta.due_time.minute)
+            )
 
         return list(rules)[: self.config.num_modules]
 
-    def _schedule_final_assessment(self, assess_type: str, meta: AssessmentMeta, final_start: datetime, final_end: datetime) -> None:
+    def _schedule_final_assessment(
+        self,
+        assess_type: str,
+        meta: AssessmentMeta,
+        final_start: datetime,
+        final_end: datetime,
+    ) -> None:
         """Determines the specific final week date and assigns it to the 'f' module[cite: 2]."""
         if not meta.final_due_day or not meta.final_due_time:
-            logger.error(f"Assessment '{assess_type}' specifies 'f' but is missing final_due_day or final_due_time.")
+            logger.error(
+                f"Assessment '{assess_type}' specifies 'f' but is missing final_due_day or final_due_time."
+            )
             sys.exit(1)
 
         final_day_const = DAY_MAP.get(meta.final_due_day, FR)
-        f_start = final_start.replace(hour=meta.final_due_time.hour, minute=meta.final_due_time.minute)
-        f_end = final_end.replace(hour=meta.final_due_time.hour, minute=meta.final_due_time.minute)
+        f_start = final_start.replace(
+            hour=meta.final_due_time.hour, minute=meta.final_due_time.minute
+        )
+        f_end = final_end.replace(
+            hour=meta.final_due_time.hour, minute=meta.final_due_time.minute
+        )
 
         f_rules = rrule(WEEKLY, byweekday=final_day_const, dtstart=f_start, until=f_end)
         f_dates = list(f_rules)
 
         if not f_dates:
-            logger.error(f"Could not find a {meta.final_due_day} during finals week for {assess_type}.")
+            logger.error(
+                f"Could not find a {meta.final_due_day} during finals week for {assess_type}."
+            )
             sys.exit(1)
 
         f_dt = f_dates[0]
@@ -473,18 +499,24 @@ class Course:
             self.modules["f"] = CourseModule("f")
         self.modules["f"].add_assessment(Assessment(assess_type, f_dt, is_final=True))
 
-    def _schedule_standard_assessment(self, assess_type: str, mod_val: str, type_dates: List[datetime]) -> None:
+    def _schedule_standard_assessment(
+        self, assess_type: str, mod_val: str, type_dates: List[datetime]
+    ) -> None:
         """Matches a standard assessment with its corresponding date and assigns it to a numbered module[cite: 2]."""
         try:
             mod_int = int(mod_val)
         except ValueError:
-            logger.warning(f"Invalid module identifier '{mod_val}' in {assess_type} config. Skipping.")
+            logger.warning(
+                f"Invalid module identifier '{mod_val}' in {assess_type} config. Skipping."
+            )
             return
 
         if 1 <= mod_int <= len(type_dates):
             if mod_int not in self.modules:
                 self.modules[mod_int] = CourseModule(mod_int)
-            self.modules[mod_int].add_assessment(Assessment(assess_type, type_dates[mod_int - 1]))
+            self.modules[mod_int].add_assessment(
+                Assessment(assess_type, type_dates[mod_int - 1])
+            )
 
     def _initialize_modules(self) -> None:
         """Coordinates the initialization of all modules and their respective assessments[cite: 2]."""
@@ -498,12 +530,16 @@ class Course:
 
             # First, expand any shorthand ranges specified in the config[cite: 4]
             expanded_modules = self._expand_module_ranges(meta.due_in_modules)
-            type_dates = self._generate_assessment_dates(meta, base_start, base_end, exdates)
+            type_dates = self._generate_assessment_dates(
+                meta, base_start, base_end, exdates
+            )
 
             # Map the parsed modules to their calculated schedules
             for mod_val in expanded_modules:
                 if mod_val == "f":
-                    self._schedule_final_assessment(assess_type, meta, final_start, final_end)
+                    self._schedule_final_assessment(
+                        assess_type, meta, final_start, final_end
+                    )
                 else:
                     self._schedule_standard_assessment(assess_type, mod_val, type_dates)
 
@@ -517,6 +553,8 @@ class Course:
                 key=lambda m: float("inf") if m.number == "f" else m.number,
             )
         )
+
+
 class Student:
     """Encapsulates individual student data and calculates their progress relative to the course."""
 
