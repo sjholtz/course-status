@@ -1,17 +1,15 @@
 import pytest
+import csv
 from pathlib import Path
-from courseStatus import AppConfig
+from courseStatus import AppConfig, Assessment
 
 
 @pytest.fixture
 def mock_config_file(tmp_path: Path) -> Path:
-    """Creates a temporary config.toml file for testing."""
-    # tmp_path is a built-in pytest fixture that provides a temporary directory
+    """Provides a mocked config.toml with standard and nonsensical dynamic assessments."""
     config_path = tmp_path / "config.toml"
 
-    # Write the TOML data incorporating the new nested Assessments structur
-    config_path.write_text(
-        """
+    toml_content = """
     [Course]
     prefix = "CS"
     numbers = [1151, 1411]
@@ -22,35 +20,55 @@ def mock_config_file(tmp_path: Path) -> Path:
         "Student, Test",
         "Test Student"
     ]
+
     [Course.Dates]
-    dates = ["1-5", "4-24"]
-    final_dates = ["4-27", "5-1"]
-    exclude_dates = ["1-12", "3-9", "3-10", "3-11", "3-12", "3-13"]
+    dates = [
+        "5-4",
+        "9-1"
+    ]
+    final_dates = [
+        "9-4",
+        "9-8"
+    ]
+    exclude_dates = [
+        "5-19",
+        "7-9",
+        "7-10",
+        "7-11",
+        "7-12",
+        "7-13"
+    ]
 
     [Course.Assessments]
-    non_academic_assessments = ["Feedback Survey"]
+    non_academic = [
+        "Feedback Survey",
+        "Introductory Quiz"
+    ]
 
     [Course.Assessments.Quizzes]
     due_time = "5:00 PM"
     due_day = "Friday"
     too_late_deadline_offset = 14
-    # Shorthand tests: 1, 2, 3, 5, 6, 13, 14
-    due_in_modules = ["-3", "5-6", "13-14"]
+    due_in_modules = ["1-5", "f"]
+    final_due_time = "12:00 PM"
+    final_due_day = "Monday"
 
     [Course.Assessments.Assignments]
-    due_time = "11:59 PM"
+    due_time = "5:00 PM"
     due_day = "Wednesday"
     too_late_deadline_offset = 14
     resubmission_deadline_offset = 21
-    # Full span
-    due_in_modules = ["1-14"]
+    due_in_modules = ["1-2", "5-7", "f"]
+    final_due_time = "5:00 PM"
+    final_due_day = "Friday"
 
-    [Course.Assessments.Final]
-    due_time = "12:00 PM"
-    due_day = "Monday"
-    due_in_modules = ["f"]
-    final_due_time = "12:00 PM"
-    final_due_day = "Monday"
+    [Course.Assessments.Geditr]
+    due_time = "2:00 AM"
+    due_day = "Saturday"
+    due_in_modules = ["-f"]
+    too_late_deadline_offset = 1
+    final_due_time = "4:00 AM"
+    final_due_day = "Tuesday"
 
     [System]
     base_path = "~/Private/grades"
@@ -61,13 +79,32 @@ def mock_config_file(tmp_path: Path) -> Path:
     assignment_code_index = 1
 
     [Mail_Merge]
-    domain = "my.university.edu"
-    headers = ["FirstName", "LastName", "Status"]
-    date_format = "%Y-%m-%d"
-    """,
-        encoding="utf-8",
-    )
+    domain = "d.university.edu"
+    headers = [
+        "Course",
+        "First Name",
+        "Last Name",
+        "Email",
+        "As Of Date",
+        "Midterm Alert",
+        "Modules Behind",
+        "Last Module",
+        "Current Module",
+        "No Work Done",
+        "Nothing Late",
+        "Quizzes Late",
+        "Quizzes Late Date",
+        "Assignments Late",
+        "Assignments Late Date",
+        "Assignments Resubmit",
+        "Assignments Resubmit Date",
+        "Geditr Late",
+        "Geditr Late Date"
+    ]
+    date_format = "%-I:%M %p on %A %-d %B %Y"
+    """
 
+    config_path.write_text(toml_content, encoding="utf-8")
     return config_path
 
 
@@ -77,31 +114,47 @@ def app_config(mock_config_file: Path) -> AppConfig:
     return AppConfig(str(mock_config_file))
 
 
-@pytest.fixture(
-    params=[
-        "missingAssignments 2-5-2026.csv",
-        "missingAssignments 02-05-2026.csv",
-        "missingAssignments-2-5-2026.csv",
-        "missingAssignments-02-05-2026.csv",
-    ]
-)
-def mock_missing_csv_file(request: pytest.FixtureRequest, tmp_path: Path) -> Path:
-    """
-    Creates a temporary missing assignments CSV file.
-    Because it is parametrized, any test using this fixture will
-    automatically run multiple times (once for each filename format).
-    """
-    file_name = request.param
-    missing_path = tmp_path / file_name
-
-    # Write some standard mock CSV data
-    missing_path.write_text(
-        """Student Name,Student ID,Course Name,Course ID,Section Name,Assignment Name,Points Possible, Due Date, Unlock Date
-"Doe, John",123,CS1151,999,"001","CS1151 A2: Module 2 Assignment",100,"Feb 4, 2026, 5:00:00 PM CST",
-"Doe, John",123,CS1151,999,"001","CS1151: Feedback Survey",0,"Feb 4, 2026, 5:00:00 PM CST",
-"Smith, Jane",124,CS1151,999,"006","CS1151 Q3d: Module 3 Quiz 4",12,"Feb 4, 2026, 5:00:00 PM CST",
-""",
-        encoding="utf-8",
-    )
-
-    return missing_path
+@pytest.fixture
+def mock_missing_csv_file(tmp_path: Path) -> Path:
+    """Provides a mocked missing assignments export using dates accurately reflecting the term (May-Sep)."""
+    csv_path = tmp_path / "missingAssignments-06-15-2026.csv"
+    with csv_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(
+            ["Student Name", "ID", "SIS", "Course", "Sec", "Assignment", "Due"]
+        )
+        # Dates align accurately with the weeks derived from the May 4 start date
+        writer.writerow(
+            [
+                "Doe, John",
+                "123",
+                "",
+                "CS1151",
+                "001",
+                "CS1151 A2: Module 2 Assignment",
+                "2026-05-13",
+            ]
+        )
+        writer.writerow(
+            [
+                "Doe, John",
+                "123",
+                "",
+                "CS1151",
+                "001",
+                "CS1151 Q3a: Module 3 Geditr",
+                "2026-05-23",
+            ]
+        )
+        writer.writerow(
+            [
+                "Smith, Jane",
+                "124",
+                "",
+                "CS1151",
+                "006",
+                "CS1151 Q3d: Module 3 Quiz 4",
+                "2026-05-22",
+            ]
+        )
+    return csv_path

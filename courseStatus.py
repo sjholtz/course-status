@@ -338,8 +338,26 @@ class AppConfig:
 
             parsed_time: time = datetime.strptime(raw_time.upper(), "%I:%M %p").time()
 
+            # Retrieve offsets and explicitly handle negative and zero values
             tl_offset: Optional[int] = assess_config.get("too_late_deadline_offset")
+            if tl_offset is not None:
+                if tl_offset < 0:
+                    logger.error(
+                        f"Assessment '{assess_type}' has an invalid negative 'too_late_deadline_offset': {tl_offset}."
+                    )
+                    sys.exit(1)
+                elif tl_offset == 0:
+                    tl_offset = None
+
             rs_offset: Optional[int] = assess_config.get("resubmission_deadline_offset")
+            if rs_offset is not None:
+                if rs_offset < 0:
+                    logger.error(
+                        f"Assessment '{assess_type}' has an invalid negative 'resubmission_deadline_offset': {rs_offset}."
+                    )
+                    sys.exit(1)
+                elif rs_offset == 0:
+                    rs_offset = None
 
             too_late: Optional[timedelta] = (
                 timedelta(days=tl_offset) if tl_offset is not None else None
@@ -425,7 +443,7 @@ class Course:
         self._initialize_modules()
 
     def _parse_term_dates(self) -> tuple[datetime, datetime]:
-        """Parses and calculates the base term start and end dates[cite: 2]."""
+        """Parses and calculates the base term start and end dates."""
         start_m, start_d = map(int, self.config.raw_dates[0].split("-"))
         end_m, end_d = map(int, self.config.raw_dates[1].split("-"))
 
@@ -439,7 +457,8 @@ class Course:
         return base_start, base_end
 
     def _parse_finals_dates(self, base_start: datetime) -> tuple[datetime, datetime]:
-        """Parses and calculates the finals week start and end dates[cite: 2]."""
+        """Parses and calculates the finals week start and end dates."""
+        # Build finals week dates
         f_start_m, f_start_d = map(int, self.config.raw_final_dates[0].split("-"))
         f_end_m, f_end_d = map(int, self.config.raw_final_dates[1].split("-"))
 
@@ -457,7 +476,8 @@ class Course:
     def _parse_exclusion_dates(
         self, base_start: datetime, base_end: datetime
     ) -> List[datetime]:
-        """Parses individual exclusion dates and handles term wrapping[cite: 2]."""
+        """Parses individual exclusion dates and handles term wrapping."""
+        # Parse exclusion dates
         exdates: List[datetime] = []
         for ex_str in self.config.raw_exclude_dates:
             ex_m, ex_d = map(int, ex_str.split("-"))
@@ -468,7 +488,7 @@ class Course:
         return exdates
 
     def _expand_module_ranges(self, due_in_modules: List[str]) -> List[str]:
-        """Expands shorthand configuration ranges (e.g., '1-14', '-3', '13-') into explicit string identifiers[cite: 4]."""
+        """Expands shorthand configuration ranges (e.g., '1-14', '-3', '13-') into explicit string identifiers."""
         expanded: List[str] = []
 
         for mod_val in due_in_modules:
@@ -482,9 +502,9 @@ class Course:
                 end_str = parts[1].strip() if len(parts) > 1 else ""
 
                 try:
-                    # Default to 1 if no start is provided (e.g., "-3")[cite: 4]
+                    # Default to 1 if no start is provided (e.g., "-3")
                     start = int(start_str) if start_str else 1
-                    # Default to total modules if no end is provided (e.g., "13-")[cite: 4]
+                    # Default to total modules if no end is provided (e.g., "13-")
                     end = int(end_str) if end_str else self.config.num_modules
 
                     for i in range(start, end + 1):
@@ -505,7 +525,7 @@ class Course:
         end: datetime,
         exdates: List[datetime],
     ) -> List[datetime]:
-        """Generates the standard weekly recurrence rules for the regular term[cite: 2]."""
+        """Generates the standard weekly recurrence rules for the regular term."""
         due_day_const = DAY_MAP.get(meta.due_day, FR)
         type_start = start.replace(hour=meta.due_time.hour, minute=meta.due_time.minute)
         type_end = end.replace(hour=meta.due_time.hour, minute=meta.due_time.minute)
@@ -529,7 +549,7 @@ class Course:
         final_start: datetime,
         final_end: datetime,
     ) -> None:
-        """Determines the specific final week date and assigns it to the 'f' module[cite: 2]."""
+        """Determines the specific final week date and assigns it to the 'f' module."""
         if not meta.final_due_day or not meta.final_due_time:
             logger.error(
                 f"Assessment '{assess_type}' specifies 'f' but is missing final_due_day or final_due_time."
@@ -562,7 +582,7 @@ class Course:
     def _schedule_standard_assessment(
         self, assess_type: str, mod_val: str, type_dates: List[datetime]
     ) -> None:
-        """Matches a standard assessment with its corresponding date and assigns it to a numbered module[cite: 2]."""
+        """Matches a standard assessment with its corresponding date and assigns it to a numbered module."""
         try:
             mod_int = int(mod_val)
         except ValueError:
@@ -579,7 +599,7 @@ class Course:
             )
 
     def _initialize_modules(self) -> None:
-        """Coordinates the initialization of all modules and their respective assessments[cite: 2]."""
+        """Coordinates the initialization of all modules and their respective assessments."""
         base_start, base_end = self._parse_term_dates()
         final_start, final_end = self._parse_finals_dates(base_start)
         exdates = self._parse_exclusion_dates(base_start, base_end)
@@ -589,7 +609,7 @@ class Course:
             if not meta.due_in_modules:
                 continue
 
-            # First, expand any shorthand ranges specified in the config[cite: 4]
+            # First, expand any shorthand ranges specified in the config
             expanded_modules = self._expand_module_ranges(meta.due_in_modules)
             type_dates = self._generate_assessment_dates(
                 meta, base_start, base_end, exdates
@@ -608,6 +628,7 @@ class Course:
         return self.modules.get(number)
 
     def __iter__(self) -> Iterator[CourseModule]:
+        # Sort modules numerically, pushing "f" (finals) to the very end
         return iter(
             sorted(
                 self.modules.values(),
@@ -722,50 +743,45 @@ class Cohort:
                     self._students[row[0]].add_missing_assignment(row[5])
 
     def _calculate_deadlines(self, today_date: datetime) -> Dict[str, Union[int, str]]:
-        deadlines: Dict[str, Union[int, str]] = {
-            "quiz_late": -1,
-            "quiz_late_date": -1,
-            "assign_late": -1,
-            "assign_late_date": -1,
-            "resubmit": -1,
-            "resubmit_date": -1,
-        }
+        deadlines: Dict[str, Union[int, str]] = {}
+
+        # Initialize dynamic deadline fields to -1 for any configured assessments
+        for assess_type, meta in Assessment._type_registry.items():
+            if meta.too_late_offset is not None:
+                deadlines[f"{assess_type}_late"] = -1
+                deadlines[f"{assess_type}_late_date"] = -1
+            if meta.resubmission_offset is not None:
+                deadlines[f"{assess_type}_resubmit"] = -1
+                deadlines[f"{assess_type}_resubmit_date"] = -1
 
         # Iterate over aggregated CourseModules to dynamically query deadlines
         for mod in self.course:
-            quiz = mod.get_assessment("Quiz")
-            if (
-                quiz
-                and quiz.too_late_date
-                and today_date < quiz.too_late_date
-                and deadlines["quiz_late"] == -1
-            ):
-                deadlines["quiz_late"] = mod.number
-                deadlines["quiz_late_date"] = quiz.too_late_date.strftime(
-                    self.config.date_format
-                )
+            for assess_type, meta in Assessment._type_registry.items():
+                assess = mod.get_assessment(assess_type)
+                if not assess:
+                    continue
 
-            assign = mod.get_assessment("Assignment")
-            if assign:
-                if (
-                    assign.too_late_date
-                    and today_date < assign.too_late_date
-                    and deadlines["assign_late"] == -1
-                ):
-                    deadlines["assign_late"] = mod.number
-                    deadlines["assign_late_date"] = assign.too_late_date.strftime(
-                        self.config.date_format
-                    )
+                # Check too late offsets
+                if meta.too_late_offset is not None and assess.too_late_date:
+                    if (
+                        today_date < assess.too_late_date
+                        and deadlines[f"{assess_type}_late"] == -1
+                    ):
+                        deadlines[f"{assess_type}_late"] = mod.number
+                        deadlines[f"{assess_type}_late_date"] = (
+                            assess.too_late_date.strftime(self.config.date_format)
+                        )
 
-                if (
-                    assign.resubmission_date
-                    and today_date < assign.resubmission_date
-                    and deadlines["resubmit"] == -1
-                ):
-                    deadlines["resubmit"] = mod.number
-                    deadlines["resubmit_date"] = assign.resubmission_date.strftime(
-                        self.config.date_format
-                    )
+                # Check resubmission offsets
+                if meta.resubmission_offset is not None and assess.resubmission_date:
+                    if (
+                        today_date < assess.resubmission_date
+                        and deadlines[f"{assess_type}_resubmit"] == -1
+                    ):
+                        deadlines[f"{assess_type}_resubmit"] = mod.number
+                        deadlines[f"{assess_type}_resubmit_date"] = (
+                            assess.resubmission_date.strftime(self.config.date_format)
+                        )
 
         return deadlines
 
@@ -792,13 +808,21 @@ class Cohort:
                     self.current_module,
                     cast(int, status["no_work_done"]),
                     cast(int, status["nothing_late"]),
-                    cast(Union[int, str], deadlines["quiz_late"]),
-                    cast(str, deadlines["quiz_late_date"]),
-                    cast(Union[int, str], deadlines["assign_late"]),
-                    cast(str, deadlines["assign_late_date"]),
-                    cast(Union[int, str], deadlines["resubmit"]),
-                    cast(str, deadlines["resubmit_date"]),
                 ]
+
+                # Dynamically append columns based on the active assessment rules
+                for assess_type, meta in Assessment._type_registry.items():
+                    if meta.too_late_offset is not None:
+                        row.append(
+                            cast(Union[int, str], deadlines[f"{assess_type}_late"])
+                        )
+                        row.append(cast(str, deadlines[f"{assess_type}_late_date"]))
+                    if meta.resubmission_offset is not None:
+                        row.append(
+                            cast(Union[int, str], deadlines[f"{assess_type}_resubmit"])
+                        )
+                        row.append(cast(str, deadlines[f"{assess_type}_resubmit_date"]))
+
                 writer.writerow(row)
 
 

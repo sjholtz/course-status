@@ -7,7 +7,7 @@ def test_student_init(app_config: AppConfig) -> None:
 
     assert student.first_name == "John"
     assert student.last_name == "Doe"
-    assert student.email == "jdoe@my.university.edu"
+    assert student.email == "jdoe@d.university.edu"
     assert student.missing_assignments == []
 
 

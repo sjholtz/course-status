@@ -23,5 +23,5 @@ def test_appconfig_init(mock_config_file: Path) -> None:
     assert "Feedback Survey" in config.non_academic
     assert len(config.raw_exclude_dates) == 6
     assert len(config.headers) > 0
-    assert "FirstName" in config.headers
-    assert "my.university.edu" == config.domain
+    assert "First Name" in config.headers
+    assert "d.university.edu" == config.domain

@@ -170,3 +170,19 @@ def test_assessment_repr():
         "<Assessment(type='Survey', due_date=2026-07-24 17:00, final=False)>"
     )
     assert repr(assessment) == expected_repr
+
+
+def test_assessment_holiday_shift_allows_non_standard_day(caplog):
+    """Test shifting an assessment to a non-standard day."""
+    Assessment.register_type_meta(
+        "Custom", time(17, 0), "Friday", ["1"], timedelta(days=2)
+    )
+    shifted_due_date = datetime(2026, 11, 30, 17, 0)  # A Monday
+
+    with caplog.at_level(logging.DEBUG):
+        assess = Assessment("Custom", shifted_due_date)
+
+    assert assess.type == "Custom"
+    assert assess.due_date == shifted_due_date
+    assert assess.too_late_date == datetime(2026, 12, 2, 17, 0)
+    assert "scheduled on Monday, but expects Friday" in caplog.text
