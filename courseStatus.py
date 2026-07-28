@@ -6,20 +6,23 @@ Course Status Report Generator
 
 This script processes Canvas gradebook exports and missing assignment reports
 to generate a comprehensive CSV status report for students in a given course.
-It operates via a command-line interface (CLI) and relies on a configuration
-file (`config.toml`) for course-specific parameters, file paths, and output formatting.
+It uses a cascading cross-platform configuration setup (XDG_CONFIG_HOME or equivalents).
 
 Usage:
-    python courseStatus.py -c <COURSE_NUM> -m <CURRENT_MODULE> [OPTIONS]
+    Initialize directories and base config:
+        python courseStatus.py --init "~/Private/grades" -c CS 1151 -c MATH 1411
 
-Example:
-    python courseStatus.py -c 1151 -m 4 --date 02-15 --midterm -v
+    Force override an existing global configuration file during initialization:
+        python courseStatus.py --init "~/Private/grades" -c CS 1151 --force
+        (Note: --force ONLY overwrites the global XDG config, local course configs are untouched).
+
+    Generate a report:
+        python courseStatus.py -c CS 1151 -m 4 --date 02-15 --midterm -v
 
 Dependencies:
     - Python 3.11+ (required for standard library tomllib)
     - python-dateutil
-    - config.toml file in the working directory
-"""
+!"""
 
 import os
 import sys
@@ -29,8 +32,9 @@ import pathlib
 import argparse
 import logging
 import tomllib
+import json
 from datetime import datetime, timedelta, time
-from typing import List, Dict, Optional, Any, Iterator, Union, cast
+from typing import List, Dict, Optional, Any, Iterator, Union, cast, Tuple
 from dateutil.rrule import MO, TU, WE, TH, FR, SA, SU, WEEKLY, rrule, rruleset
 
 # Configure basic logging for the CLI application
@@ -52,6 +56,211 @@ DAY_MAP: Dict[str, Any] = {
     "Saturday": SA,
     "Sunday": SU,
 }
+
+DEFAULT_CONFIG_TEMPLATE = """[Course]
+prefix = {prefix_val}
+numbers = {numbers_val}
+first_assess_code = "Q1a"
+number_of_modules = 14
+# Exact names or substrings in the Canvas export Name column to ignore
+ignored_students = [
+    "Points Possible",
+    "Student, Test",
+    "Test Student"
+]
+
+[Course.Dates]
+# Dates MUST be in the form MM-DD, MM-D, M-DD, or M-D
+# Term start and end dates, excluding finals week
+dates = [
+    "5-4",
+    "9-1"
+]
+# Finals week start and end dates
+final_dates = [
+    "9-4",
+    "9-8"
+]
+# Term dates that are normally class dates, where no class is held
+exclude_dates = [
+    "5-19",
+    "7-9",
+    "7-10",
+    "7-11",
+    "7-12",
+    "7-13"
+]
+
+[Course.Assessments]
+non_academic = [
+    "Feedback Survey",
+    "Introductory Quiz"
+]
+[Course.Assessments.Quizzes]
+due_time = "5:00 PM"
+due_day = "Friday"
+# Days until too late to turn in
+too_late_deadline_offset = 14
+due_in_modules = ["1-5", "f"]
+final_due_time = "12:00 PM"
+final_due_day = "Monday"
+[Course.Assessments.Assignments]
+due_time = "5:00 PM"
+due_day = "Wednesday"
+# Days until too late to turn in
+too_late_deadline_offset = 14
+# Days until too late to resubmit updated solution
+resubmission_deadline_offset = 21
+due_in_modules = ["1-2", "5-7", "f"]
+final_due_time = "5:00 PM"
+final_due_day = "Friday"
+
+[System]
+base_path = {base_path_val}
+# Keywords used to identify the correct CSV files for a given date
+grades_file_keyword = "Grades"
+missing_file_keyword = "missingAssignments"
+output_file_prefix = "status-"
+
+# Canvas CSV Header Mappings
+grades_student_col = "Student"
+grades_email_col = "SIS Login ID"
+missing_student_col = "Student Name"
+missing_assignment_col = "Assignment Name"
+
+# Assignment Code Extraction Settings
+assignment_code_delimiter = " "
+assignment_code_index = 1
+
+[Mail_Merge]
+domain = "d.university.edu"
+headers = [
+    "Course",
+    "First Name",
+    "Last Name",
+    "Email",
+    "As Of Date",
+    "Midterm Alert",
+    "Modules Behind",
+    "Last Module",
+    "Current Module",
+    "No Work Done",
+    "Nothing Late",
+    "Quiz Late",
+    "Quiz Late Date",
+    "Assign Late",
+    "Assign Late Date",
+    "Resubmit",
+    "Resubmit Date"
+]
+date_format = "%-I:%M %p on %A %-d %B %Y"
+"""
+
+LOCAL_CONFIG_SKELETON = """# Local Course Override Configuration
+# Values specified here will override values in global
+# config. Uncomment by removing the "# " and change the value to the
+# right of the equal sign (=).
+
+# Commonly overridden key/values shown. See other key/values in global
+# config that you can add here. Be sure that:
+# 1. You include the square bracketed section title, if it is not
+#    included here
+# 2. Place the key = value pair under the same square bracketed
+#    section title here as it occurs in the global config
+
+# WARNING: 'base_path', 'prefix', and 'numbers' are omitted here and
+# MUST NOT be overridden here.
+
+# [Course]
+# first_assess_code = "Q1a"
+# number_of_modules = 14
+# # Exact names or substrings in the Canvas Grades export 'Name'
+# # column to ignore
+# ignored_students = [
+#     "Student, Test",
+#     "Test Student"
+# ]
+
+# [Course.Assessments]
+# non_academic = [
+#     "Feedback Survey",
+#     "Introductory Quiz"
+# ]
+
+# # The category and its keys below can repeat for other assessment
+# # names: Exams, Quizzes, Labs, Discussions—Anything that is worth
+# # points and has a due date/time.
+#
+# [Course.Assessments.<AssessmentName>]
+# due_time = "5:00 PM"
+# due_day = "Friday"
+# Examples of module specification
+# due_in_modules = ["1-5", "f"] # Modules 1-5 and finals week
+# due_in_modules = ["-2", "5-7"] # Modules 1, 2, 5, 6, 7
+# due_in_modules = ["2-"] # Modules 2 through end except for finals week
+# due_in_modules = ["2-f"] # Modules 2 through end and finals week
+# due_in_modules = ["-"] # All modules except for finals week
+# # Days until too late to turn in—Omit for assessment that has no
+# # late submission date
+# too_late_deadline_offset = 14
+# # Days until too late to resubmit updated solution—Omit for
+# # assessment that cannot be resubmitted
+# resubmission_deadline_offset = 21
+# # Only supply the keys below for assessments that are due during
+# # finals week, i.e. they have an "f" in their 'due_in_module' key
+# # above
+# final_due_time = "12:00 PM"
+# final_due_day = "Monday"
+
+# [Mail_Merge]
+# headers = [
+#     "Course",
+#     "First Name",
+#     "Last Name",
+#     "Email",
+#     "As Of Date",
+#     "Midterm Alert",
+#     "Modules Behind",
+#     "Last Module",
+#     "Current Module",
+#     "No Work Done",
+#     "Nothing Late",
+#     "Quiz Late",
+#     "Quiz Late Date",
+#     "Assign Late",
+#     "Assign Late Date",
+#     "Resubmit",
+#     "Resubmit Date"
+# ]
+"""
+
+
+def get_config_home() -> pathlib.Path:
+    """Returns the cross-platform configuration directory base."""
+    xdg_config_home = os.environ.get("XDG_CONFIG_HOME")
+    if xdg_config_home:
+        return pathlib.Path(xdg_config_home)
+
+    if os.name == "nt":
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            return pathlib.Path(appdata)
+        return pathlib.Path.home() / "AppData" / "Roaming"
+
+    # macOS and Linux fallback
+    return pathlib.Path.home() / ".config"
+
+
+def deep_merge(base: dict, update: dict, path: Optional[list[Any]] = None) -> dict:
+    """Recursively merges dictionary `update` into `base`."""
+    if path is None:
+        path = []
+    for key, val in update.items():
+        if key in base and isinstance(base[key], dict) and isinstance(val, dict):
+            deep_merge(base[key], val, path + [str(key)])
+        else:
+            base[key] = val
+    return base
 
 
 class AssessmentMeta:
@@ -124,7 +333,7 @@ class Assessment:
         meta: Optional[AssessmentMeta] = self._type_registry.get(self.type)
         if not meta:
             raise ValueError(
-                f"Assessment type '{self.type}' is missing meta-configuration. Please register it first."
+                f"Assessment type '{self.type}' is missing meta-configuration."
             )
 
         # Validate the schedule
@@ -174,41 +383,132 @@ class Assessment:
 
 
 class AppConfig:
-    """Parses and stores settings from the configuration file."""
+    """Parses and stores settings merged from global and local configurations."""
 
-    def __init__(self, config_file: str = "config.toml") -> None:
-        config_path: pathlib.Path = pathlib.Path(config_file)
+    def __init__(self, req_prefix: str, req_number: str) -> None:
+        self.req_prefix = req_prefix.upper()
+        self.req_number = str(req_number)
 
-        if not config_path.is_file():
-            logger.error(f"Could not read config file '{config_file}'")
+        self.config_dir: pathlib.Path = get_config_home() / "courseStatus"
+        global_config_path: pathlib.Path = self.config_dir / "config.toml"
+
+        if not global_config_path.is_file():
+            logger.error(f"Global configuration not found at '{global_config_path}'")
+            logger.error("Please run the tool with --init first.")
             sys.exit(1)
 
-        # Parse the TOML file natively into a dictionary
-        config_content: str = config_path.read_text(encoding="utf-8")
         try:
-            config_data: Dict[str, Any] = tomllib.loads(config_content)
+            global_data: Dict[str, Any] = tomllib.loads(
+                global_config_path.read_text(encoding="utf-8")
+            )
         except tomllib.TOMLDecodeError as e:
-            logger.error(f"Error parsing TOML config: {e}")
+            logger.error(f"Error parsing global TOML config: {e}")
             sys.exit(1)
 
+        self._validate_course_registration(global_data)
+
+        raw_base_path = global_data.get("System", {}).get(
+            "base_path", "~/Private/grades"
+        )
+        self.base_path_obj = pathlib.Path(raw_base_path).expanduser()
+
+        # Attempt to load local course config
+        local_config_path = (
+            self.base_path_obj
+            / f"{self.req_prefix.lower()}{self.req_number}"
+            / "config.toml"
+        )
+        if local_config_path.is_file():
+            try:
+                local_data: Dict[str, Any] = tomllib.loads(
+                    local_config_path.read_text(encoding="utf-8")
+                )
+                self._strip_restricted_keys(local_data, local_config_path)
+                logger.debug(
+                    f"Applying local config overrides from {local_config_path}"
+                )
+                global_data = deep_merge(global_data, local_data)
+            except tomllib.TOMLDecodeError as e:
+                logger.error(
+                    f"Error parsing local TOML config at '{local_config_path}': {e}"
+                )
+                sys.exit(1)
+
+        self._load_from_dict(global_data)
+
+    def _validate_course_registration(self, global_data: Dict[str, Any]) -> None:
+        """Validates that the requested prefix and number are registered in the global config."""
+        course_data = global_data.get("Course", {})
+        conf_prefix = course_data.get("prefix", "")
+        conf_numbers = [str(n) for n in course_data.get("numbers", [])]
+
+        valid = False
+        avail_courses = []
+
+        if isinstance(conf_prefix, list):
+            if len(conf_prefix) != len(conf_numbers):
+                logger.error(
+                    "Global config Error: 'prefix' and 'numbers' lists must be the same length."
+                )
+                sys.exit(1)
+            for p, n in zip(conf_prefix, conf_numbers):
+                avail_courses.append(f"{p} {n}")
+                if p.upper() == self.req_prefix and n == self.req_number:
+                    valid = True
+        elif isinstance(conf_prefix, str):
+            for n in conf_numbers:
+                avail_courses.append(f"{conf_prefix} {n}")
+                if conf_prefix.upper() == self.req_prefix and n == self.req_number:
+                    valid = True
+
+        if not valid:
+            logger.error(
+                f"Course '{self.req_prefix} {self.req_number}' is not registered in the global config."
+            )
+            logger.error(f"Global Config Path: {self.config_dir / 'config.toml'}")
+            logger.error(
+                f"Available Courses: {', '.join(avail_courses) if avail_courses else 'None found'}"
+            )
+            sys.exit(1)
+
+    def _strip_restricted_keys(
+        self, local_data: Dict[str, Any], filepath: pathlib.Path
+    ) -> None:
+        """Removes protected keys from local configs before merging and warns the user."""
+        stripped = False
+
+        if "Course" in local_data:
+            if "prefix" in local_data["Course"]:
+                local_data["Course"].pop("prefix")
+                stripped = True
+            if "numbers" in local_data["Course"]:
+                local_data["Course"].pop("numbers")
+                stripped = True
+
+        if "System" in local_data and "base_path" in local_data["System"]:
+            local_data["System"].pop("base_path")
+            stripped = True
+
+        if stripped:
+            logger.warning(
+                f"Restricted keys ('prefix', 'numbers', 'base_path') found in local config '{filepath}'. They were ignored."
+            )
+
+    def _load_from_dict(self, config_data: Dict[str, Any]) -> None:
+        """Loads configuration variables identically to previous native behavior natively, providing fallbacks."""
         course_data: Dict[str, Any] = config_data.get("Course", {})
         dates_data: Dict[str, Any] = course_data.get("Dates", {})
         assessment_data: Dict[str, Any] = course_data.get("Assessments", {})
         system_data: Dict[str, Any] = config_data.get("System", {})
         mail_merge_data: Dict[str, Any] = config_data.get("Mail_Merge", {})
 
-        # Load [Course] variables natively, providing fallbacks
-        self.prefix: str = course_data.get("prefix", "CS")
-
-        # Convert the integer array to strings for CLI matching
-        raw_numbers: List[int] = course_data.get("numbers", [1151, 1411])
-        self.course_numbers: List[str] = [str(num) for num in raw_numbers]
-
+        # Set specific active course string equivalents
+        self.active_prefix: str = self.req_prefix
+        self.active_number: str = self.req_number
         self.first_assess_code: str = course_data.get("first_assess_code", "Q1a")
-
         self.num_modules: int = course_data.get("number_of_modules", 14)
         self.non_academic: List[str] = assessment_data.get(
-            "non_academic_assessments", ["Feedback Survey"]
+            "non_academic", ["Feedback Survey"]
         )
         self.ignored_students: List[str] = course_data.get(
             "ignored_students", ["Points Possible", "Student, Test"]
@@ -222,9 +522,6 @@ class AppConfig:
         # Validate the dates extracted from the config
         self._validate_dates()
 
-        self.base_path: str = course_data.get("base_path", "~/Private/grades")
-
-        # Load [System] variables natively
         self.grades_keyword: str = system_data.get("grades_file_keyword", "Grades")
         self.missing_keyword: str = system_data.get(
             "missing_file_keyword", "missingAssignments"
@@ -443,9 +740,6 @@ class CourseModule:
 
     def get_assessment(self, assess_type: str) -> Optional[Assessment]:
         return self.assessments.get(assess_type)
-
-    def __str__(self) -> str:
-        return f"Module {self.number} ({len(self.assessments)} assessments)"
 
 
 class Course:
@@ -836,7 +1130,7 @@ class Cohort:
                     self.current_module
                 )
                 row: List[Union[str, int]] = [
-                    self.course_num,
+                    self.config.active_number,
                     cast(str, status["first_name"]),
                     cast(str, status["last_name"]),
                     cast(str, status["email"]),
@@ -865,16 +1159,107 @@ class Cohort:
                 writer.writerow(row)
 
 
+def do_init(
+    base_path_arg: str, courses: List[Tuple[str, str]], force: bool = False
+) -> None:
+    """Handles the --init bootstrapping process."""
+    # Resolve absolute path for base_path
+    base_path_obj = pathlib.Path(base_path_arg)
+    if not base_path_obj.is_absolute():
+        base_path_obj = pathlib.Path.home() / base_path_obj
+    base_path_str = str(base_path_obj).replace(
+        "\\", "\\\\"
+    )  # Escape for TOML if windows
+
+    config_dir = get_config_home() / "courseStatus"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    global_config_path = config_dir / "config.toml"
+
+    prefixes = [c[0].upper() for c in courses]
+    numbers = [int(c[1]) for c in courses]
+
+    # If all prefixes are the same, collapse to a single string value for cleanliness
+    if len(set(prefixes)) == 1:
+        prefix_val = json.dumps(prefixes[0])
+    else:
+        prefix_val = json.dumps(prefixes)
+
+    numbers_val = json.dumps(numbers)
+
+    # Write global config if it doesn't exist, or if force is True
+    if not global_config_path.exists() or force:
+        if force and global_config_path.exists():
+            logger.warning(
+                f"Overwriting existing global configuration at {global_config_path} due to --force flag."
+            )
+
+        rendered_toml = DEFAULT_CONFIG_TEMPLATE.format(
+            prefix_val=prefix_val,
+            numbers_val=numbers_val,
+            base_path_val=json.dumps(base_path_str),
+        )
+        global_config_path.write_text(rendered_toml, encoding="utf-8")
+        logger.info(f"Initialized global configuration at: {global_config_path}")
+    else:
+        logger.warning(
+            f"Global configuration already exists at {global_config_path}. Not overwriting."
+        )
+
+    # Create local directories and skeletons (unaffected by --force flag)
+    for p, n in zip(prefixes, numbers):
+        course_dir = base_path_obj / f"{p.lower()}{n}"
+        course_dir.mkdir(parents=True, exist_ok=True)
+        local_config_path = course_dir / "config.toml"
+
+        if not local_config_path.exists():
+            local_config_path.write_text(LOCAL_CONFIG_SKELETON, encoding="utf-8")
+            logger.info(
+                f"Created local course override skeleton at: {local_config_path}"
+            )
+        else:
+            logger.info(f"Local config already exists at: {local_config_path}")
+
+    logger.info("Initialization complete. You can now use the script normally.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Process course statuses from Canvas grade files."
     )
-    parser.add_argument("-c", "--course", type=int, required=True)
-    parser.add_argument("-m", "--module", type=int, required=True)
-    parser.add_argument("-d", "--date", type=str)
-    parser.add_argument("--midterm", action="store_true")
-    parser.add_argument("--config", type=str, default="config.toml")
-    parser.add_argument("-v", "--verbose", action="store_true")
+
+    # Restructured arguments to remove required=True and add initialization logic
+    parser.add_argument(
+        "--init",
+        type=str,
+        metavar="BASE_PATH",
+        help="Initialize configuration and directories",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force overwrite of the global config file (only valid with --init)",
+    )
+    parser.add_argument(
+        "-c",
+        "--course",
+        nargs=2,
+        action="append",
+        metavar=("PREFIX", "NUMBER"),
+        help="Course prefix and number",
+    )
+    parser.add_argument("-m", "--module", type=int, help="Current module number")
+    parser.add_argument("-d", "--date", type=str, help="Date in MM-DD format")
+    parser.add_argument(
+        "--midterm", action="store_true", help="Flag to indicate midterm alert"
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose output"
+    )
+
+    # If executed with no arguments, print the help text and exit gracefully
+    if len(sys.argv) == 1:
+        parser.print_help(sys.stderr)
+        sys.exit(1)
 
     args = parser.parse_args()
 
@@ -882,13 +1267,34 @@ def main() -> None:
         logging.getLogger().setLevel(logging.DEBUG)
         logger.debug("Verbose debug logging enabled.")
 
-    config: AppConfig = AppConfig(args.config)
+    # Ensure --force is only used alongside --init
+    if args.force and not args.init:
+        logger.error("The --force flag can only be used in conjunction with --init.")
+        sys.exit(1)
 
-    if str(args.course) not in config.course_numbers:
+    # Route execution to INIT phase if flag is present
+    if args.init:
+        if not args.course:
+            logger.error(
+                "Must provide at least one --course (-c <PREFIX> <NUMBER>) when running --init."
+            )
+            sys.exit(1)
+        do_init(args.init, args.course, args.force)
+        sys.exit(0)
+
+    # Regular script execution validations
+    if not args.course or len(args.course) != 1:
         logger.error(
-            f"Invalid course '{args.course}'. Expected one of {config.course_numbers}."
+            "Standard execution requires exactly one --course (-c <PREFIX> <NUMBER>)."
         )
         sys.exit(1)
+
+    if not args.module:
+        logger.error("Standard execution requires --module (-m).")
+        sys.exit(1)
+
+    req_prefix, req_number = args.course[0]
+    config: AppConfig = AppConfig(req_prefix, req_number)
 
     today_date: datetime = datetime.now()
     month_day_str: str = args.date if args.date else today_date.strftime("%m-%d")
@@ -901,11 +1307,11 @@ def main() -> None:
 
     midterm_alert: int = 1 if args.midterm else 0
 
-    base_path: pathlib.Path = pathlib.Path(
-        f"{config.base_path}/{config.prefix.lower()}{args.course}"
-    ).expanduser()
+    base_path = (
+        config.base_path_obj / f"{config.active_prefix.lower()}{config.active_number}"
+    )
     if not base_path.exists():
-        logger.error(f"Base path '{base_path}' does not exist.")
+        logger.error(f"Course directory '{base_path}' does not exist.")
         sys.exit(1)
 
     grades_file: Optional[pathlib.Path] = None
@@ -932,12 +1338,7 @@ def main() -> None:
 
     safe_as_of_date: str = f"{as_of_date.month}/{as_of_date.day}/{as_of_date.year}"
     cohort: Cohort = Cohort(
-        config,
-        args.course,
-        args.module,
-        safe_as_of_date,
-        midterm_alert,
-        today_date.year,
+        config, req_number, args.module, safe_as_of_date, midterm_alert, today_date.year
     )
 
     cohort.load_grades(grades_file)

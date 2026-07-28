@@ -11,9 +11,14 @@ def reset_registry():
 
 
 @pytest.fixture
-def mock_config_file(tmp_path: Path) -> Path:
-    """Provides a mocked config.toml with standard and nonsensical dynamic assessments."""
-    config_path = tmp_path / "config.toml"
+def mock_config_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Provides a mocked config.toml in a mocked XDG_CONFIG_HOME."""
+    config_home = tmp_path / ".config"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+
+    config_dir = config_home / "courseStatus"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_path = config_dir / "config.toml"
 
     toml_content = """
     [Course]
@@ -123,7 +128,7 @@ def mock_config_file(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def app_config(mock_config_file: Path) -> AppConfig:
-    return AppConfig(str(mock_config_file))
+    return AppConfig("CS", "1151")
 
 
 @pytest.fixture
@@ -132,11 +137,9 @@ def mock_missing_csv_file(tmp_path: Path) -> Path:
     csv_path = tmp_path / "missingAssignments-06-15-2026.csv"
     with csv_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        # Updated "Assignment" to "Assignment Name" to match default config keys
         writer.writerow(
             ["Student Name", "ID", "SIS", "Course", "Sec", "Assignment Name", "Due"]
         )
-        # Dates align accurately with the weeks derived from the May 4 start date
         writer.writerow(
             [
                 "Doe, John",
