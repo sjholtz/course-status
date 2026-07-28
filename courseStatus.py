@@ -257,6 +257,59 @@ class AppConfig:
         # Parse and register assessment configurations
         self._load_assessments(course_data.get("Assessments", {}))
 
+    def _expand_due_in_modules(self, raw_modules: List[str]) -> List[str]:
+        """Expands shorthand range formats in due_in_modules strings."""
+        expanded: List[str] = []
+        for item in raw_modules:
+            item = item.strip().lower()
+            if "-" in item:
+                parts = item.split("-")
+                if len(parts) == 2:
+                    start_str, end_str = parts[0].strip(), parts[1].strip()
+
+                    # Determine start index
+                    try:
+                        start_idx = 1 if not start_str else int(start_str)
+                    except ValueError:
+                        logger.error(f"Invalid range start in '{item}'.")
+                        sys.exit(1)
+
+                    include_f = False
+                    # Determine end index and inclusion of finals 'f'
+                    if not end_str:
+                        end_idx = self.num_modules
+                    elif end_str == "f":
+                        end_idx = self.num_modules
+                        include_f = True
+                    else:
+                        try:
+                            end_idx = int(end_str)
+                        except ValueError:
+                            logger.error(f"Invalid range end in '{item}'.")
+                            sys.exit(1)
+
+                    # Append numbers in range
+                    for i in range(start_idx, end_idx + 1):
+                        expanded.append(str(i))
+                    if include_f:
+                        expanded.append("f")
+                else:
+                    logger.error(f"Invalid module range format: '{item}'")
+                    sys.exit(1)
+            else:
+                # Add standalone module indicator
+                expanded.append(item)
+
+        # Remove duplicates while preserving original order
+        seen = set()
+        result = []
+        for x in expanded:
+            if not x in seen:
+                seen.add(x)
+                result.append(x)
+
+        return result
+
     def _load_assessments(self, assessments_data: Dict[str, Any]) -> None:
         """Parses the nested assessment data and registers types into the Assessment class."""
 
@@ -265,17 +318,23 @@ class AppConfig:
 
         for assess_type, assess_config in assessments_data.items():
             if not isinstance(assess_config, dict):
+                logger.warning(f"Skipping invalid assessment entry: '{assess_type}'")
                 continue
 
             raw_time: Optional[str] = assess_config.get("due_time")
             due_day: Optional[str] = assess_config.get("due_day")
-            due_in_modules: Optional[List[str]] = assess_config.get("due_in_modules")
+            due_in_modules_raw: Optional[List[str]] = assess_config.get(
+                "due_in_modules"
+            )
 
-            if raw_time is None or due_day is None or due_in_modules is None:
+            if raw_time is None or due_day is None or due_in_modules_raw is None:
                 logger.error(
-                    f"Assessment '{assess_type}' is missing required 'due_time', 'due_day', or 'due_in_modules'."
+                    f"Assessment '{assess_type}' is missing required 'due_time', 'due_day', or 'due_in_modules' in config.toml."
                 )
                 sys.exit(1)
+
+            # Expand potential shorthand formats from the configuration
+            due_in_modules = self._expand_due_in_modules(due_in_modules_raw)
 
             parsed_time: time = datetime.strptime(raw_time.upper(), "%I:%M %p").time()
 
@@ -370,6 +429,7 @@ class Course:
         start_m, start_d = map(int, self.config.raw_dates[0].split("-"))
         end_m, end_d = map(int, self.config.raw_dates[1].split("-"))
 
+        # Build base term dates (times will be adjusted per assessment type)
         base_start: datetime = datetime(self.year, start_m, start_d)
         base_end: datetime = datetime(self.year, end_m, end_d)
 
@@ -524,6 +584,7 @@ class Course:
         final_start, final_end = self._parse_finals_dates(base_start)
         exdates = self._parse_exclusion_dates(base_start, base_end)
 
+        # Iterate over all registered assessment types to dynamically build schedules
         for assess_type, meta in Assessment._type_registry.items():
             if not meta.due_in_modules:
                 continue
