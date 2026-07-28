@@ -4,6 +4,12 @@ from pathlib import Path
 from courseStatus import AppConfig, Assessment
 
 
+@pytest.fixture(autouse=True)
+def reset_registry():
+    """Ensure the Assessment registry is cleared before every test."""
+    Assessment._type_registry.clear()
+
+
 @pytest.fixture
 def mock_config_file(tmp_path: Path) -> Path:
     """Provides a mocked config.toml with standard and nonsensical dynamic assessments."""
@@ -66,7 +72,7 @@ def mock_config_file(tmp_path: Path) -> Path:
     due_time = "2:00 AM"
     due_day = "Saturday"
     due_in_modules = ["-f"]
-    too_late_deadline_offset = 1
+    too_late_deadline_offset = 3
     final_due_time = "4:00 AM"
     final_due_day = "Tuesday"
 
@@ -75,6 +81,13 @@ def mock_config_file(tmp_path: Path) -> Path:
     grades_file_keyword = "Grades"
     missing_file_keyword = "missingAssignments"
     output_file_prefix = "status-"
+
+    # CSV Header Mappings
+    grades_student_col = "Student"
+    grades_email_col = "SIS Login ID"
+    missing_student_col = "Student Name"
+    missing_assignment_col = "Assignment Name"
+
     assignment_code_delimiter = " "
     assignment_code_index = 1
 
@@ -110,7 +123,6 @@ def mock_config_file(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def app_config(mock_config_file: Path) -> AppConfig:
-    """Provides an instantiated AppConfig object based on the mocked TOML file."""
     return AppConfig(str(mock_config_file))
 
 
@@ -120,8 +132,9 @@ def mock_missing_csv_file(tmp_path: Path) -> Path:
     csv_path = tmp_path / "missingAssignments-06-15-2026.csv"
     with csv_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
+        # Updated "Assignment" to "Assignment Name" to match default config keys
         writer.writerow(
-            ["Student Name", "ID", "SIS", "Course", "Sec", "Assignment", "Due"]
+            ["Student Name", "ID", "SIS", "Course", "Sec", "Assignment Name", "Due"]
         )
         # Dates align accurately with the weeks derived from the May 4 start date
         writer.writerow(
@@ -142,7 +155,7 @@ def mock_missing_csv_file(tmp_path: Path) -> Path:
                 "",
                 "CS1151",
                 "001",
-                "CS1151 Q3a: Module 3 Geditr",
+                "CS1151 G3a: Module 3 Geditr",
                 "2026-05-23",
             ]
         )

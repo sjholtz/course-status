@@ -1,4 +1,3 @@
-import pytest
 import csv
 from pathlib import Path
 from datetime import datetime
@@ -31,11 +30,13 @@ def test_cohort_load_grades(app_config: AppConfig, tmp_path: Path) -> None:
     f: Any
     with open(csv_path, "w", newline="") as f:
         writer: Any = csv.writer(f)
-        writer.writerow(["Header 1"])
-        writer.writerow(["Header 2"])
-        writer.writerow(["Doe, John", "ID", "Sec", "jdoe@university.edu"])
+        writer.writerow(["Student", "ID", "Section", "SIS Login ID"])
+        writer.writerow(["Points Possible", "", "", ""])
+        writer.writerow(["Student, Test", "", "", ""])
+        # Remaining Rows: Standard parsed data
+        writer.writerow(["Doe, John", "123", "001", "jdoe@university.edu"])
         writer.writerow(
-            ["Student, Test", "ID", "Sec", "test@university.edu"]
+            ["Student, Test", "125", "001", "test@university.edu"]
         )  # Should be skipped in processing
 
     cohort: Cohort = Cohort(app_config, 1151, 3, "06/15/2026", 1, 2026)
@@ -61,7 +62,7 @@ def test_cohort_load_missing_work(app_config: AppConfig, mock_missing_csv_file: 
     john = cohort.get_or_create_student("Doe, John", "jdoe@example.com")
     assert len(john.missing_assignments) == 2
     assert "CS1151 A2: Module 2 Assignment" in john.missing_assignments
-    assert "CS1151 Q3a: Module 3 Geditr" in john.missing_assignments
+    assert "CS1151 G3a: Module 3 Geditr" in john.missing_assignments
 
     # Validate Jane Smith
     jane = cohort.get_or_create_student("Smith, Jane", "jsmith@example.com")
@@ -91,8 +92,10 @@ def test_ignored_students_are_skipped(app_config: AppConfig, tmp_path: Path) -> 
 
     with open(csv_path, "w", newline="") as f:
         writer: Any = csv.writer(f)
-        writer.writerow(["Header 1"])
-        writer.writerow(["Header 2"])
+        writer.writerow(["Student", "ID", "Section", "SIS Login ID"])
+        writer.writerow(["Points Possible", "", "", ""])
+        writer.writerow(["Student, Test", "", "", ""])
+        # Remaining Rows: Standard parsed data
         writer.writerow(["Doe, John", "123", "001", "jdoe@university.edu"])
         writer.writerow(["Points Possible", "124", "001", "points@university.edu"])
         writer.writerow(["Student, Test", "125", "001", "test1@university.edu"])

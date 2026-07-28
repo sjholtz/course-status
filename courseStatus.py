@@ -230,6 +230,17 @@ class AppConfig:
             "missing_file_keyword", "missingAssignments"
         )
         self.output_prefix: str = system_data.get("output_file_prefix", "status-")
+
+        # Load column headers
+        self.grades_student_col: str = system_data.get("grades_student_col", "Student")
+        self.grades_email_col: str = system_data.get("grades_email_col", "SIS Login ID")
+        self.missing_student_col: str = system_data.get(
+            "missing_student_col", "Student Name"
+        )
+        self.missing_assignment_col: str = system_data.get(
+            "missing_assignment_col", "Assignment Name"
+        )
+
         self.assign_code_index: int = system_data.get("assignment_code_index", 1)
         raw_delimiter: str = system_data.get("assignment_code_delimiter", " ")
         # Map a single space to None so Python's split() handles consecutive whitespace safely
@@ -317,6 +328,10 @@ class AppConfig:
         Assessment._type_registry.clear()
 
         for assess_type, assess_config in assessments_data.items():
+            # Silently skip non-academic list as it is handled elsewhere
+            if assess_type == "non_academic":
+                continue
+
             if not isinstance(assess_config, dict):
                 logger.warning(f"Skipping invalid assessment entry: '{assess_type}'")
                 continue
@@ -723,24 +738,48 @@ class Cohort:
 
     def load_grades(self, filepath: pathlib.Path) -> None:
         with filepath.open("r", encoding="utf-8") as f:
+            # Manually extract headers and skip the next two rows (e.g. Points Possible and Test Student)
             reader: Any = csv.reader(f)
-            next(reader)
-            next(reader)
-            for row in reader:
+            try:
+                header = next(reader)
+                next(reader)
+                next(reader)
+            except StopIteration:
+                return
+
+            dict_reader = csv.DictReader(f, fieldnames=header)
+            for row in dict_reader:
                 if not row:
                     continue
-                if any(ignored in row[0] for ignored in self.config.ignored_students):
+
+                student_name = row.get(self.config.grades_student_col)
+                email = row.get(self.config.grades_email_col)
+
+                if not student_name or not email:
                     continue
-                self.get_or_create_student(row[0], row[3])
+
+                if any(
+                    ignored in student_name for ignored in self.config.ignored_students
+                ):
+                    continue
+
+                self.get_or_create_student(student_name, email)
 
     def load_missing_work(self, filepath: pathlib.Path) -> None:
         with filepath.open("r", encoding="utf-8") as f:
-            reader: Any = csv.reader(f)
-            next(reader)
-            missing_data: List[List[str]] = [row for row in reader if row]
-            for row in missing_data:
-                if row[0] in self._students:
-                    self._students[row[0]].add_missing_assignment(row[5])
+            dict_reader: Any = csv.DictReader(f)
+            for row in dict_reader:
+                if not row:
+                    continue
+
+                student_name = row.get(self.config.missing_student_col)
+                assignment_desc = row.get(self.config.missing_assignment_col)
+
+                if not student_name or not assignment_desc:
+                    continue
+
+                if student_name in self._students:
+                    self._students[student_name].add_missing_assignment(assignment_desc)
 
     def _calculate_deadlines(self, today_date: datetime) -> Dict[str, Union[int, str]]:
         deadlines: Dict[str, Union[int, str]] = {}

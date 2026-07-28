@@ -12,8 +12,10 @@ def test_integration_dynamic_assessments(
     grades_csv_path: Path = tmp_path / "Grades 06-15-2026.csv"
     with open(grades_csv_path, "w", newline="") as f:
         writer: Any = csv.writer(f)
-        writer.writerow(["Header 1"])
-        writer.writerow(["Header 2"])
+        writer.writerow(["Student", "ID", "Section", "SIS Login ID"])
+        writer.writerow(["Points Possible", "", "", ""])
+        writer.writerow(["Student, Test", "", "", ""])
+        # Remaining Rows: Standard parsed data
         writer.writerow(["Doe, John", "123", "001", "jdoe@university.edu"])
 
     cohort = Cohort(app_config, 1151, 7, "06/15/2026", 0, 2026)
