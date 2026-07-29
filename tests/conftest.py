@@ -55,6 +55,7 @@ def mock_config_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         "Feedback Survey",
         "Introductory Quiz"
     ]
+    late_header_suffix = "Late"
 
     [Course.Assessments.Quizzes]
     due_time = "5:00 PM"
@@ -64,6 +65,9 @@ def mock_config_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     final_due_time = "12:00 PM"
     final_due_day = "Monday"
 
+    [Course.Assessments.Quizzes.Adjustments]
+    "5-8" = "5-11"
+
     [Course.Assessments.Assignments]
     due_time = "5:00 PM"
     due_day = "Wednesday"
@@ -72,6 +76,9 @@ def mock_config_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     due_in_modules = ["1-2", "5-7", "f"]
     final_due_time = "5:00 PM"
     final_due_day = "Friday"
+
+    [Course.Assessments.Assignments.Adjustments]
+    "5-6" = "5-4"
 
     [Course.Assessments.Geditr]
     due_time = "2:00 AM"
@@ -109,16 +116,13 @@ def mock_config_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         "Last Module",
         "Current Module",
         "No Work Done",
-        "Nothing Late",
-        "Quizzes Late",
-        "Quizzes Late Date",
-        "Assignments Late",
-        "Assignments Late Date",
-        "Assignments Resubmit",
-        "Assignments Resubmit Date",
-        "Geditr Late",
-        "Geditr Late Date"
+        "Nothing Late"
     ]
+    assessment_too_late_header_suffix = "Late"
+    assessment_too_late_date_header_suffix = "Late Date"
+    assessment_resubmit_header_suffix = "Resubmit"
+    assessment_resubmit_date_header_suffix = "Resubmit Date"
+
     date_format = "%-I:%M %p on %A %-d %B %Y"
     """
 

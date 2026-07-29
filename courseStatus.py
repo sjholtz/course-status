@@ -22,7 +22,7 @@ Usage:
 Dependencies:
     - Python 3.11+ (required for standard library tomllib)
     - python-dateutil
-!"""
+"""
 
 import os
 import sys
@@ -33,7 +33,7 @@ import argparse
 import logging
 import tomllib
 import json
-from datetime import datetime, timedelta, time
+from datetime import datetime, date, timedelta, time
 from typing import List, Dict, Optional, Any, Iterator, Union, cast, Tuple
 from dateutil.rrule import MO, TU, WE, TH, FR, SA, SU, WEEKLY, rrule, rruleset
 
@@ -104,6 +104,9 @@ too_late_deadline_offset = 14
 due_in_modules = ["1-5", "f"]
 final_due_time = "12:00 PM"
 final_due_day = "Monday"
+[Course.Assessments.Quizzes.Adjustments]
+# Example: "11-27" = "11-25"
+
 [Course.Assessments.Assignments]
 due_time = "5:00 PM"
 due_day = "Wednesday"
@@ -211,6 +214,8 @@ LOCAL_CONFIG_SKELETON = """# Local Course Override Configuration
 # # above
 # final_due_time = "12:00 PM"
 # final_due_day = "Monday"
+# [Course.Assessments.<AssessmentName>.Adjustments]
+# "11-27" = "11-25"
 
 # [Mail_Merge]
 # headers = [
@@ -224,13 +229,7 @@ LOCAL_CONFIG_SKELETON = """# Local Course Override Configuration
 #     "Last Module",
 #     "Current Module",
 #     "No Work Done",
-#     "Nothing Late",
-#     "Quiz Late",
-#     "Quiz Late Date",
-#     "Assign Late",
-#     "Assign Late Date",
-#     "Resubmit",
-#     "Resubmit Date"
+#     "Nothing Late"
 # ]
 """
 
@@ -275,6 +274,7 @@ class AssessmentMeta:
         resubmission_offset: Optional[timedelta] = None,
         final_due_time: Optional[time] = None,
         final_due_day: Optional[str] = None,
+        shifted_dates: Optional[Dict[str, str]] = None,
     ) -> None:
         self.due_time: time = due_time
         self.due_day: str = due_day
@@ -283,6 +283,7 @@ class AssessmentMeta:
         self.resubmission_offset: Optional[timedelta] = resubmission_offset
         self.final_due_time: Optional[time] = final_due_time
         self.final_due_day: Optional[str] = final_due_day
+        self.shifted_dates: Dict[str, str] = shifted_dates or {}
 
 
 class Assessment:
@@ -302,6 +303,7 @@ class Assessment:
         resubmission_offset: Optional[timedelta] = None,
         final_due_time: Optional[time] = None,
         final_due_day: Optional[str] = None,
+        shifted_dates: Optional[Dict[str, str]] = None,
     ) -> None:
         """Registers the meta-information for a specific assessment type."""
         cls._type_registry[assess_type] = AssessmentMeta(
@@ -312,6 +314,7 @@ class Assessment:
             resubmission_offset,
             final_due_time,
             final_due_day,
+            shifted_dates,
         )
 
     @classmethod
@@ -563,7 +566,7 @@ class AppConfig:
             self.date_format = raw_format.replace("%#", "%-")
 
         # Parse and register assessment configurations
-        self._load_assessments(course_data.get("Assessments", {}))
+        self._load_assessments(course_data.get("Assessments", {}), mail_merge_data)
 
     def _expand_due_in_modules(self, raw_modules: List[str]) -> List[str]:
         """Expands shorthand range formats in due_in_modules strings."""
@@ -618,7 +621,9 @@ class AppConfig:
 
         return result
 
-    def _load_assessments(self, assessments_data: Dict[str, Any]) -> None:
+    def _load_assessments(
+        self, assessments_data: Dict[str, Any], mail_merge_data: Dict[str, Any]
+    ) -> None:
         """Parses the nested assessment data and registers types into the Assessment class."""
 
         # Clear registry for clean state in testing environments
@@ -626,7 +631,7 @@ class AppConfig:
 
         for assess_type, assess_config in assessments_data.items():
             # Silently skip non-academic list as it is handled elsewhere
-            if assess_type == "non_academic":
+            if assess_type == "non_academic" or assess_type == "late_header_suffix":
                 continue
 
             if not isinstance(assess_config, dict):
@@ -648,6 +653,11 @@ class AppConfig:
             # Expand potential shorthand formats from the configuration
             due_in_modules = self._expand_due_in_modules(due_in_modules_raw)
 
+            # Add this assessment to the header
+            self.headers.append(
+                f"{assess_type} {mail_merge_data.get('assessment_too_late_header_suffix')}"
+            )
+
             parsed_time: time = datetime.strptime(raw_time.upper(), "%I:%M %p").time()
 
             # Retrieve offsets and explicitly handle negative and zero values
@@ -660,6 +670,11 @@ class AppConfig:
                     sys.exit(1)
                 elif tl_offset == 0:
                     tl_offset = None
+                else:
+                    # Append assessment too late to header
+                    self.headers.append(
+                        f"{assess_type} {mail_merge_data.get('assessment_too_late_date_header_suffix')}"
+                    )
 
             rs_offset: Optional[int] = assess_config.get("resubmission_deadline_offset")
             if rs_offset is not None:
@@ -670,6 +685,14 @@ class AppConfig:
                     sys.exit(1)
                 elif rs_offset == 0:
                     rs_offset = None
+                else:
+                    # Append assessment resubmit to header
+                    self.headers.append(
+                        f"{assess_type} {mail_merge_data.get('assessment_resubmit_header_suffix')}"
+                    )
+                    self.headers.append(
+                        f"{assess_type} {mail_merge_data.get('assessment_resubmit_date_header_suffix')}"
+                    )
 
             too_late: Optional[timedelta] = (
                 timedelta(days=tl_offset) if tl_offset is not None else None
@@ -686,6 +709,8 @@ class AppConfig:
                 else None
             )
 
+            shifted_dates: Dict[str, str] = assess_config.get("Adjustments", {})
+
             Assessment.register_type_meta(
                 assess_type,
                 parsed_time,
@@ -695,6 +720,7 @@ class AppConfig:
                 resubmit,
                 final_due_time,
                 final_due_day,
+                shifted_dates,
             )
 
     def _validate_dates(self) -> None:
@@ -829,6 +855,7 @@ class Course:
 
     def _generate_assessment_dates(
         self,
+        assess_type: str,
         meta: AssessmentMeta,
         start: datetime,
         end: datetime,
@@ -839,17 +866,64 @@ class Course:
         type_start = start.replace(hour=meta.due_time.hour, minute=meta.due_time.minute)
         type_end = end.replace(hour=meta.due_time.hour, minute=meta.due_time.minute)
 
+        # Process shifted dates and validate them
+        shifted_map: Dict[date, date] = {}
+        for orig_str, new_str in meta.shifted_dates.items():
+            try:
+                o_m, o_d = map(int, orig_str.split("-"))
+                o_dt = datetime(self.year, o_m, o_d)
+                if o_dt < start and end.year > self.year:
+                    o_dt = o_dt.replace(year=self.year + 1)
+
+                n_m, n_d = map(int, new_str.split("-"))
+                n_dt = datetime(self.year, n_m, n_d)
+                if n_dt < start and end.year > self.year:
+                    n_dt = n_dt.replace(year=self.year + 1)
+            except ValueError:
+                logger.error(f"Invalid date format in shifted_dates for {assess_type}.")
+                sys.exit(1)
+
+            # Validation 1: Between course start and end dates
+            if not (start.date() <= o_dt.date() <= end.date()):
+                logger.error(
+                    f"Shifted date original key '{orig_str}' for {assess_type} is not within course start and end dates."
+                )
+                sys.exit(1)
+
+            # Validation: Issue a warning if the new shifted value falls on an excluded date
+            if any(ex.date() == n_dt.date() for ex in exdates):
+                logger.warning(
+                    f"Shifted date value '{new_str}' for {assess_type} falls on a globally excluded date."
+                )
+
+            shifted_map[o_dt.date()] = n_dt.date()
+
         rules: rruleset = rruleset()
         rules.rrule(
             rrule(WEEKLY, byweekday=due_day_const, dtstart=type_start, until=type_end)
         )
 
         for ex_dt in exdates:
-            rules.exdate(
-                ex_dt.replace(hour=meta.due_time.hour, minute=meta.due_time.minute)
-            )
+            # If an excluded date is being explicitly shifted, we MUST
+            # NOT exclude it from the base sequence, so we maintain
+            # the module count and can intercept it.
+            if ex_dt.date() not in shifted_map:
+                rules.exdate(
+                    ex_dt.replace(hour=meta.due_time.hour, minute=meta.due_time.minute)
+                )
 
-        return list(rules)[: self.config.num_modules]
+        type_dates: List[datetime] = list(rules)[: self.config.num_modules]
+
+        # Intercept and modify the specific dates requested
+        for i in range(len(type_dates)):
+            t_date = type_dates[i].date()
+            if t_date in shifted_map:
+                new_d = shifted_map[t_date]
+                type_dates[i] = type_dates[i].replace(
+                    year=new_d.year, month=new_d.month, day=new_d.day
+                )
+
+        return type_dates
 
     def _schedule_final_assessment(
         self,
@@ -921,7 +995,7 @@ class Course:
             # First, expand any shorthand ranges specified in the config
             expanded_modules = self._expand_module_ranges(meta.due_in_modules)
             type_dates = self._generate_assessment_dates(
-                meta, base_start, base_end, exdates
+                assess_type, meta, base_start, base_end, exdates
             )
 
             # Map the parsed modules to their calculated schedules
@@ -1006,18 +1080,15 @@ class Cohort:
     def __init__(
         self,
         config: AppConfig,
-        course_num: int,
         current_module: int,
         as_of_date_str: str,
         midterm_alert: int,
         term_year: int,
     ) -> None:
         self.config: AppConfig = config
-        self.course_num: int = course_num
         self.current_module: int = current_module
         self.as_of_date_str: str = as_of_date_str
         self.midterm_alert: int = midterm_alert
-
         self._students: Dict[str, Student] = {}
         # Delegate module scheduling and aggregation to the Course class
         self.course: Course = Course(self.config, term_year)
@@ -1338,7 +1409,7 @@ def main() -> None:
 
     safe_as_of_date: str = f"{as_of_date.month}/{as_of_date.day}/{as_of_date.year}"
     cohort: Cohort = Cohort(
-        config, req_number, args.module, safe_as_of_date, midterm_alert, today_date.year
+        config, args.module, safe_as_of_date, midterm_alert, today_date.year
     )
 
     cohort.load_grades(grades_file)

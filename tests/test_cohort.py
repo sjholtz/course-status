@@ -9,7 +9,6 @@ def test_cohort_initialization_and_student_creation(app_config: AppConfig):
     """Test Cohort creates a Course and manages a dictionary of Students."""
     cohort = Cohort(
         config=app_config,
-        course_num=1151,
         current_module=7,
         as_of_date_str="06/15/2026",
         midterm_alert=0,
@@ -39,7 +38,7 @@ def test_cohort_load_grades(app_config: AppConfig, tmp_path: Path) -> None:
             ["Student, Test", "125", "001", "test@university.edu"]
         )  # Should be skipped in processing
 
-    cohort: Cohort = Cohort(app_config, 1151, 3, "06/15/2026", 1, 2026)
+    cohort: Cohort = Cohort(app_config, 3, "06/15/2026", 1, 2026)
     cohort.load_grades(csv_path)
 
     assert len(list(cohort)) == 1
@@ -49,7 +48,7 @@ def test_cohort_load_grades(app_config: AppConfig, tmp_path: Path) -> None:
 
 def test_cohort_load_missing_work(app_config: AppConfig, mock_missing_csv_file: Path):
     """Test that CSV missing assignment data is correctly parsed and bound to Students."""
-    cohort = Cohort(app_config, 1151, 5, "06/15/2026", 0, 2026)
+    cohort = Cohort(app_config, 5, "06/15/2026", 0, 2026)
 
     # Create the students that exist in the mock CSV
     cohort.get_or_create_student("Doe, John", "jdoe@example.com")
@@ -72,7 +71,7 @@ def test_cohort_load_missing_work(app_config: AppConfig, mock_missing_csv_file: 
 
 def test_cohort_calculate_dynamic_deadlines(app_config: AppConfig) -> None:
     """Tests that dynamic deadlines are calculated and added to the tracking dictionary."""
-    cohort = Cohort(app_config, 1151, 3, "06-15-2026", 1, 2026)
+    cohort = Cohort(app_config, 3, "06-15-2026", 1, 2026)
 
     today: datetime = datetime(2026, 7, 1)
     deadlines: Dict[str, Union[int, str]] = cohort._calculate_deadlines(today)
@@ -100,7 +99,7 @@ def test_ignored_students_are_skipped(app_config: AppConfig, tmp_path: Path) -> 
         writer.writerow(["Points Possible", "124", "001", "points@university.edu"])
         writer.writerow(["Student, Test", "125", "001", "test1@university.edu"])
 
-    cohort = Cohort(app_config, 1151, 7, "06-15-2026", 1, 2026)
+    cohort = Cohort(app_config, 7, "06-15-2026", 1, 2026)
     cohort.load_grades(csv_path)
 
     assert "Doe, John" in cohort._students

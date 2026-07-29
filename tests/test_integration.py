@@ -18,7 +18,7 @@ def test_integration_dynamic_assessments(
         # Remaining Rows: Standard parsed data
         writer.writerow(["Doe, John", "123", "001", "jdoe@university.edu"])
 
-    cohort = Cohort(app_config, 1151, 7, "06/15/2026", 0, 2026)
+    cohort = Cohort(app_config, 7, "06/15/2026", 0, 2026)
     cohort.load_grades(grades_csv_path)
     cohort.load_missing_work(mock_missing_csv_file)
 
