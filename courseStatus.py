@@ -34,7 +34,7 @@ import logging
 import tomllib
 import json
 from datetime import datetime, date, timedelta, time
-from typing import List, Dict, Optional, Any, Iterator, Union, cast, Tuple
+from typing import Any, Iterator, cast
 from dateutil.rrule import MO, TU, WE, TH, FR, SA, SU, WEEKLY, rrule, rruleset
 
 # Configure basic logging for the CLI application
@@ -47,7 +47,7 @@ if sys.hexversion < 0x030B0000:
     sys.exit(1)
 
 # Map string representations of weekdays from config.toml to dateutil constants
-DAY_MAP: Dict[str, Any] = {
+DAY_MAP: dict[str, Any] = {
     "Monday": MO,
     "Tuesday": TU,
     "Wednesday": WE,
@@ -250,7 +250,7 @@ def get_config_home() -> pathlib.Path:
     return pathlib.Path.home() / ".config"
 
 
-def deep_merge(base: dict, update: dict, path: Optional[list[Any]] = None) -> dict:
+def deep_merge(base: dict, update: dict, path: list[Any] | None = None) -> dict:
     """Recursively merges dictionary `update` into `base`."""
     if path is None:
         path = []
@@ -269,28 +269,28 @@ class AssessmentMeta:
         self,
         due_time: time,
         due_day: str,
-        due_in_modules: List[str],
-        too_late_offset: Optional[timedelta] = None,
-        resubmission_offset: Optional[timedelta] = None,
-        final_due_time: Optional[time] = None,
-        final_due_day: Optional[str] = None,
-        shifted_dates: Optional[Dict[str, str]] = None,
+        due_in_modules: list[str],
+        too_late_offset: timedelta | None = None,
+        resubmission_offset: timedelta | None = None,
+        final_due_time: time | None = None,
+        final_due_day: str | None = None,
+        shifted_dates: dict[str, str] | None = None,
     ) -> None:
         self.due_time: time = due_time
         self.due_day: str = due_day
-        self.due_in_modules: List[str] = due_in_modules
-        self.too_late_offset: Optional[timedelta] = too_late_offset
-        self.resubmission_offset: Optional[timedelta] = resubmission_offset
-        self.final_due_time: Optional[time] = final_due_time
-        self.final_due_day: Optional[str] = final_due_day
-        self.shifted_dates: Dict[str, str] = shifted_dates or {}
+        self.due_in_modules: list[str] = due_in_modules
+        self.too_late_offset: timedelta | None = too_late_offset
+        self.resubmission_offset: timedelta | None = resubmission_offset
+        self.final_due_time: time | None = final_due_time
+        self.final_due_day: str | None = final_due_day
+        self.shifted_dates: dict[str, str] = shifted_dates or {}
 
 
 class Assessment:
     """Represents an individual assessment that counts toward a student's grade."""
 
     # Class-level registry acting as the meta-class storage for each assessment 'type'
-    _type_registry: Dict[str, AssessmentMeta] = {}
+    _type_registry: dict[str, AssessmentMeta] = {}
 
     @classmethod
     def register_type_meta(
@@ -298,12 +298,12 @@ class Assessment:
         assess_type: str,
         due_time: time,
         due_day: str,
-        due_in_modules: List[str],
-        too_late_offset: Optional[timedelta] = None,
-        resubmission_offset: Optional[timedelta] = None,
-        final_due_time: Optional[time] = None,
-        final_due_day: Optional[str] = None,
-        shifted_dates: Optional[Dict[str, str]] = None,
+        due_in_modules: list[str],
+        too_late_offset: timedelta | None = None,
+        resubmission_offset: timedelta | None = None,
+        final_due_time: time | None = None,
+        final_due_day: str | None = None,
+        shifted_dates: dict[str, str] | None = None,
     ) -> None:
         """Registers the meta-information for a specific assessment type."""
         cls._type_registry[assess_type] = AssessmentMeta(
@@ -318,7 +318,7 @@ class Assessment:
         )
 
     @classmethod
-    def get_meta(cls, assess_type: str) -> Optional[AssessmentMeta]:
+    def get_meta(cls, assess_type: str) -> AssessmentMeta | None:
         return cls._type_registry.get(assess_type)
 
     def __init__(
@@ -333,7 +333,7 @@ class Assessment:
         self.is_final: bool = is_final
 
         # Retrieve the meta-information for this specific assessment type
-        meta: Optional[AssessmentMeta] = self._type_registry.get(self.type)
+        meta: AssessmentMeta | None = self._type_registry.get(self.type)
         if not meta:
             raise ValueError(
                 f"Assessment type '{self.type}' is missing meta-configuration."
@@ -342,8 +342,8 @@ class Assessment:
         # Validate the schedule
         self._validate_schedule(meta, strict_validation, self.is_final)
 
-        self.too_late_date: Optional[datetime] = None
-        self.resubmission_date: Optional[datetime] = None
+        self.too_late_date: datetime | None = None
+        self.resubmission_date: datetime | None = None
 
         # Calculate deadline attributes dynamically based on the stored durations.
         # Only apply these offsets if this is NOT a finals week assessment.
@@ -401,7 +401,7 @@ class AppConfig:
             sys.exit(1)
 
         try:
-            global_data: Dict[str, Any] = tomllib.loads(
+            global_data: dict[str, Any] = tomllib.loads(
                 global_config_path.read_text(encoding="utf-8")
             )
         except tomllib.TOMLDecodeError as e:
@@ -423,7 +423,7 @@ class AppConfig:
         )
         if local_config_path.is_file():
             try:
-                local_data: Dict[str, Any] = tomllib.loads(
+                local_data: dict[str, Any] = tomllib.loads(
                     local_config_path.read_text(encoding="utf-8")
                 )
                 self._strip_restricted_keys(local_data, local_config_path)
@@ -439,7 +439,7 @@ class AppConfig:
 
         self._load_from_dict(global_data)
 
-    def _validate_course_registration(self, global_data: Dict[str, Any]) -> None:
+    def _validate_course_registration(self, global_data: dict[str, Any]) -> None:
         """Validates that the requested prefix and number are registered in the global config."""
         course_data = global_data.get("Course", {})
         conf_prefix = course_data.get("prefix", "")
@@ -475,7 +475,7 @@ class AppConfig:
             sys.exit(1)
 
     def _strip_restricted_keys(
-        self, local_data: Dict[str, Any], filepath: pathlib.Path
+        self, local_data: dict[str, Any], filepath: pathlib.Path
     ) -> None:
         """Removes protected keys from local configs before merging and warns the user."""
         stripped = False
@@ -497,30 +497,30 @@ class AppConfig:
                 f"Restricted keys ('prefix', 'numbers', 'base_path') found in local config '{filepath}'. They were ignored."
             )
 
-    def _load_from_dict(self, config_data: Dict[str, Any]) -> None:
+    def _load_from_dict(self, config_data: dict[str, Any]) -> None:
         """Loads configuration variables identically to previous native behavior natively, providing fallbacks."""
-        course_data: Dict[str, Any] = config_data.get("Course", {})
-        dates_data: Dict[str, Any] = course_data.get("Dates", {})
-        assessment_data: Dict[str, Any] = course_data.get("Assessments", {})
-        system_data: Dict[str, Any] = config_data.get("System", {})
-        mail_merge_data: Dict[str, Any] = config_data.get("Mail_Merge", {})
+        course_data: dict[str, Any] = config_data.get("Course", {})
+        dates_data: dict[str, Any] = course_data.get("Dates", {})
+        assessment_data: dict[str, Any] = course_data.get("Assessments", {})
+        system_data: dict[str, Any] = config_data.get("System", {})
+        mail_merge_data: dict[str, Any] = config_data.get("Mail_Merge", {})
 
         # Set specific active course string equivalents
         self.active_prefix: str = self.req_prefix
         self.active_number: str = self.req_number
         self.first_assess_code: str = course_data.get("first_assess_code", "Q1a")
         self.num_modules: int = course_data.get("number_of_modules", 14)
-        self.non_academic: List[str] = assessment_data.get(
+        self.non_academic: list[str] = assessment_data.get(
             "non_academic", ["Feedback Survey"]
         )
-        self.ignored_students: List[str] = course_data.get(
+        self.ignored_students: list[str] = course_data.get(
             "ignored_students", ["Points Possible", "Student, Test"]
         )
 
         # Base dates
-        self.raw_dates: List[str] = dates_data.get("dates", ["1-1", "12-31"])
-        self.raw_exclude_dates: List[str] = dates_data.get("exclude_dates", [])
-        self.raw_final_dates: List[str] = dates_data.get("final_dates", [])
+        self.raw_dates: list[str] = dates_data.get("dates", ["1-1", "12-31"])
+        self.raw_exclude_dates: list[str] = dates_data.get("exclude_dates", [])
+        self.raw_final_dates: list[str] = dates_data.get("final_dates", [])
 
         # Validate the dates extracted from the config
         self._validate_dates()
@@ -544,12 +544,12 @@ class AppConfig:
         self.assign_code_index: int = system_data.get("assignment_code_index", 1)
         raw_delimiter: str = system_data.get("assignment_code_delimiter", " ")
         # Map a single space to None so Python's split() handles consecutive whitespace safely
-        self.assign_code_delimiter: Optional[str] = (
+        self.assign_code_delimiter: str | None = (
             None if raw_delimiter == " " else raw_delimiter
         )
 
         # Load [Mail_Merge] variables natively
-        self.headers: List[str] = mail_merge_data.get(
+        self.headers: list[str] = mail_merge_data.get(
             "headers", ["Course", "Name", "Status"]
         )
         # Fallback to "preferred-domain.edu" if not provided in config
@@ -568,9 +568,9 @@ class AppConfig:
         # Parse and register assessment configurations
         self._load_assessments(course_data.get("Assessments", {}), mail_merge_data)
 
-    def _expand_due_in_modules(self, raw_modules: List[str]) -> List[str]:
+    def _expand_due_in_modules(self, raw_modules: list[str]) -> list[str]:
         """Expands shorthand range formats in due_in_modules strings."""
-        expanded: List[str] = []
+        expanded: list[str] = []
         for item in raw_modules:
             item = item.strip().lower()
             if "-" in item:
@@ -622,7 +622,7 @@ class AppConfig:
         return result
 
     def _load_assessments(
-        self, assessments_data: Dict[str, Any], mail_merge_data: Dict[str, Any]
+        self, assessments_data: dict[str, Any], mail_merge_data: dict[str, Any]
     ) -> None:
         """Parses the nested assessment data and registers types into the Assessment class."""
 
@@ -638,11 +638,9 @@ class AppConfig:
                 logger.warning(f"Skipping invalid assessment entry: '{assess_type}'")
                 continue
 
-            raw_time: Optional[str] = assess_config.get("due_time")
-            due_day: Optional[str] = assess_config.get("due_day")
-            due_in_modules_raw: Optional[List[str]] = assess_config.get(
-                "due_in_modules"
-            )
+            raw_time: str | None = assess_config.get("due_time")
+            due_day: str | None = assess_config.get("due_day")
+            due_in_modules_raw: list[str] | None = assess_config.get("due_in_modules")
 
             if raw_time is None or due_day is None or due_in_modules_raw is None:
                 logger.error(
@@ -661,7 +659,7 @@ class AppConfig:
             parsed_time: time = datetime.strptime(raw_time.upper(), "%I:%M %p").time()
 
             # Retrieve offsets and explicitly handle negative and zero values
-            tl_offset: Optional[int] = assess_config.get("too_late_deadline_offset")
+            tl_offset: int | None = assess_config.get("too_late_deadline_offset")
             if tl_offset is not None:
                 if tl_offset < 0:
                     logger.error(
@@ -676,7 +674,7 @@ class AppConfig:
                         f"{assess_type} {mail_merge_data.get('assessment_too_late_date_header_suffix')}"
                     )
 
-            rs_offset: Optional[int] = assess_config.get("resubmission_deadline_offset")
+            rs_offset: int | None = assess_config.get("resubmission_deadline_offset")
             if rs_offset is not None:
                 if rs_offset < 0:
                     logger.error(
@@ -694,22 +692,21 @@ class AppConfig:
                         f"{assess_type} {mail_merge_data.get('assessment_resubmit_date_header_suffix')}"
                     )
 
-            too_late: Optional[timedelta] = (
+            too_late: timedelta | None = (
                 timedelta(days=tl_offset) if tl_offset is not None else None
             )
-            resubmit: Optional[timedelta] = (
+            resubmit: timedelta | None = (
                 timedelta(days=rs_offset) if rs_offset is not None else None
             )
 
-            final_due_time_raw: Optional[str] = assess_config.get("final_due_time")
-            final_due_day: Optional[str] = assess_config.get("final_due_day")
-            final_due_time: Optional[time] = (
+            final_due_time_raw: str | None = assess_config.get("final_due_time")
+            final_due_day: str | None = assess_config.get("final_due_day")
+            final_due_time: time | None = (
                 datetime.strptime(final_due_time_raw.upper(), "%I:%M %p").time()
                 if final_due_time_raw
                 else None
             )
-
-            shifted_dates: Dict[str, str] = assess_config.get("Adjustments", {})
+            shifted_dates: dict[str, str] = assess_config.get("Adjustments", {})
 
             Assessment.register_type_meta(
                 assess_type,
@@ -746,25 +743,21 @@ class AppConfig:
                 logger.error(f"Invalid date format '{date_str}'.")
                 sys.exit(1)
 
-        for d_str in self.raw_dates:
-            check_date(d_str)
-        for d_str in self.raw_final_dates:
-            check_date(d_str)
-        for d_str in self.raw_exclude_dates:
+        for d_str in self.raw_dates + self.raw_final_dates + self.raw_exclude_dates:
             check_date(d_str)
 
 
 class CourseModule:
     """Holds a singular module and its associated assessments."""
 
-    def __init__(self, number: Union[int, str]) -> None:
-        self.number: Union[int, str] = number
-        self.assessments: Dict[str, Assessment] = {}
+    def __init__(self, number: int | str) -> None:
+        self.number: int | str = number
+        self.assessments: dict[str, Assessment] = {}
 
     def add_assessment(self, assess: Assessment) -> None:
         self.assessments[assess.type] = assess
 
-    def get_assessment(self, assess_type: str) -> Optional[Assessment]:
+    def get_assessment(self, assess_type: str) -> Assessment | None:
         return self.assessments.get(assess_type)
 
 
@@ -774,8 +767,16 @@ class Course:
     def __init__(self, config: AppConfig, year: int) -> None:
         self.config: AppConfig = config
         self.year: int = year
-        self.modules: Dict[Union[int, str], CourseModule] = {}
+        self.modules: dict[int | str, CourseModule] = {}
         self._initialize_modules()
+
+    def _adjust_year_wrap(
+        self, target_dt: datetime, reference_dt: datetime
+    ) -> datetime:
+        """Centralized helper to adjust the year if the target logically wraps into the next year."""
+        if target_dt < reference_dt and target_dt.month < reference_dt.month:
+            return target_dt.replace(year=self.year + 1)
+        return target_dt
 
     def _parse_term_dates(self) -> tuple[datetime, datetime]:
         """Parses and calculates the base term start and end dates."""
@@ -810,10 +811,10 @@ class Course:
 
     def _parse_exclusion_dates(
         self, base_start: datetime, base_end: datetime
-    ) -> List[datetime]:
+    ) -> list[datetime]:
         """Parses individual exclusion dates and handles term wrapping."""
         # Parse exclusion dates
-        exdates: List[datetime] = []
+        exdates: list[datetime] = []
         for ex_str in self.config.raw_exclude_dates:
             ex_m, ex_d = map(int, ex_str.split("-"))
             ex_dt: datetime = datetime(self.year, ex_m, ex_d)
@@ -822,10 +823,9 @@ class Course:
             exdates.append(ex_dt)
         return exdates
 
-    def _expand_module_ranges(self, due_in_modules: List[str]) -> List[str]:
+    def _expand_module_ranges(self, due_in_modules: list[str]) -> list[str]:
         """Expands shorthand configuration ranges (e.g., '1-14', '-3', '13-') into explicit string identifiers."""
-        expanded: List[str] = []
-
+        expanded: list[str] = []
         for mod_val in due_in_modules:
             mod_val = mod_val.strip().lower()
 
@@ -859,15 +859,15 @@ class Course:
         meta: AssessmentMeta,
         start: datetime,
         end: datetime,
-        exdates: List[datetime],
-    ) -> List[datetime]:
+        exdates: list[datetime],
+    ) -> list[datetime]:
         """Generates the standard weekly recurrence rules for the regular term."""
         due_day_const = DAY_MAP.get(meta.due_day, FR)
         type_start = start.replace(hour=meta.due_time.hour, minute=meta.due_time.minute)
         type_end = end.replace(hour=meta.due_time.hour, minute=meta.due_time.minute)
 
         # Process shifted dates and validate them
-        shifted_map: Dict[date, date] = {}
+        shifted_map: dict[date, date] = {}
         for orig_str, new_str in meta.shifted_dates.items():
             try:
                 o_m, o_d = map(int, orig_str.split("-"))
@@ -912,7 +912,7 @@ class Course:
                     ex_dt.replace(hour=meta.due_time.hour, minute=meta.due_time.minute)
                 )
 
-        type_dates: List[datetime] = list(rules)[: self.config.num_modules]
+        type_dates: list[datetime] = list(rules)[: self.config.num_modules]
 
         # Intercept and modify the specific dates requested
         for i in range(len(type_dates)):
@@ -956,14 +956,14 @@ class Course:
             )
             sys.exit(1)
 
-        f_dt = f_dates[0]
-
         if "f" not in self.modules:
             self.modules["f"] = CourseModule("f")
-        self.modules["f"].add_assessment(Assessment(assess_type, f_dt, is_final=True))
+        self.modules["f"].add_assessment(
+            Assessment(assess_type, f_dates[0], is_final=True)
+        )
 
     def _schedule_standard_assessment(
-        self, assess_type: str, mod_val: str, type_dates: List[datetime]
+        self, assess_type: str, mod_val: str, type_dates: list[datetime]
     ) -> None:
         """Matches a standard assessment with its corresponding date and assigns it to a numbered module."""
         try:
@@ -1007,7 +1007,7 @@ class Course:
                 else:
                     self._schedule_standard_assessment(assess_type, mod_val, type_dates)
 
-    def get_module(self, number: Union[int, str]) -> Optional[CourseModule]:
+    def get_module(self, number: int | str) -> CourseModule | None:
         return self.modules.get(number)
 
     def __iter__(self) -> Iterator[CourseModule]:
@@ -1032,12 +1032,12 @@ class Student:
         username, _ = orig_email.split("@")
         self.email: str = f"{username}@{self.config.domain}"
 
-        self.missing_assignments: List[str] = []
+        self.missing_assignments: list[str] = []
 
     def add_missing_assignment(self, assignment_desc: str) -> None:
         self.missing_assignments.append(assignment_desc)
 
-    def get_status(self, current_module: int) -> Dict[str, Union[str, int]]:
+    def get_status(self, current_module: int) -> dict[str, str | int]:
         last_module: int = current_module
         no_work_done: int = 0
         nothing_late: int = 1 if not self.missing_assignments else 0
@@ -1046,7 +1046,7 @@ class Student:
             if any(non_acad in desc for non_acad in self.config.non_academic):
                 continue
             nothing_late = 0
-            parts: List[str] = desc.split(self.config.assign_code_delimiter)
+            parts: list[str] = desc.split(self.config.assign_code_delimiter)
             if len(parts) > self.config.assign_code_index:
                 assign_code: str = parts[self.config.assign_code_index]
             else:
@@ -1089,7 +1089,7 @@ class Cohort:
         self.current_module: int = current_module
         self.as_of_date_str: str = as_of_date_str
         self.midterm_alert: int = midterm_alert
-        self._students: Dict[str, Student] = {}
+        self._students: dict[str, Student] = {}
         # Delegate module scheduling and aggregation to the Course class
         self.course: Course = Course(self.config, term_year)
 
@@ -1114,6 +1114,7 @@ class Cohort:
 
             dict_reader = csv.DictReader(f, fieldnames=header)
             for row in dict_reader:
+                # csv.DictReader auto skips empty rows in standard cases, but keep check for safety
                 if not row:
                     continue
 
@@ -1146,8 +1147,8 @@ class Cohort:
                 if student_name in self._students:
                     self._students[student_name].add_missing_assignment(assignment_desc)
 
-    def _calculate_deadlines(self, today_date: datetime) -> Dict[str, Union[int, str]]:
-        deadlines: Dict[str, Union[int, str]] = {}
+    def _calculate_deadlines(self, today_date: datetime) -> dict[str, int | str]:
+        deadlines: dict[str, int | str] = {}
 
         # Initialize dynamic deadline fields to -1 for any configured assessments
         for assess_type, meta in Assessment._type_registry.items():
@@ -1190,17 +1191,15 @@ class Cohort:
         return deadlines
 
     def generate_report(self, output_path: pathlib.Path, today_date: datetime) -> None:
-        deadlines: Dict[str, Union[int, str]] = self._calculate_deadlines(today_date)
+        deadlines: dict[str, int | str] = self._calculate_deadlines(today_date)
 
         with output_path.open("w", newline="", encoding="utf-8") as f:
             writer: Any = csv.writer(f)
             writer.writerow(self.config.headers)
 
             for student in self:
-                status: Dict[str, Union[str, int]] = student.get_status(
-                    self.current_module
-                )
-                row: List[Union[str, int]] = [
+                status: dict[str, str | int] = student.get_status(self.current_module)
+                row: list[str | int] = [
                     self.config.active_number,
                     cast(str, status["first_name"]),
                     cast(str, status["last_name"]),
@@ -1217,13 +1216,11 @@ class Cohort:
                 # Dynamically append columns based on the active assessment rules
                 for assess_type, meta in Assessment._type_registry.items():
                     if meta.too_late_offset is not None:
-                        row.append(
-                            cast(Union[int, str], deadlines[f"{assess_type}_late"])
-                        )
+                        row.append(cast(int | str, deadlines[f"{assess_type}_late"]))
                         row.append(cast(str, deadlines[f"{assess_type}_late_date"]))
                     if meta.resubmission_offset is not None:
                         row.append(
-                            cast(Union[int, str], deadlines[f"{assess_type}_resubmit"])
+                            cast(int | str, deadlines[f"{assess_type}_resubmit"])
                         )
                         row.append(cast(str, deadlines[f"{assess_type}_resubmit_date"]))
 
@@ -1231,7 +1228,7 @@ class Cohort:
 
 
 def do_init(
-    base_path_arg: str, courses: List[Tuple[str, str]], force: bool = False
+    base_path_arg: str, courses: list[tuple[str, str]], force: bool = False
 ) -> None:
     """Handles the --init bootstrapping process."""
     # Resolve absolute path for base_path
@@ -1385,25 +1382,26 @@ def main() -> None:
         logger.error(f"Course directory '{base_path}' does not exist.")
         sys.exit(1)
 
-    grades_file: Optional[pathlib.Path] = None
-    missing_file: Optional[pathlib.Path] = None
+    grades_file: pathlib.Path | None = None
+    missing_file: pathlib.Path | None = None
 
-    pattern = re.compile(
-        rf"^{config.missing_keyword}[ -]\d{{1,2}}-\d{{1,2}}-\d{{4}}\.csv$",
+    target_year_str = str(today_date.year)
+    missing_pattern = re.compile(
+        rf"^{config.missing_keyword}[ -]\d{{1,2}}-\d{{1,2}}-{target_year_str}\.csv$",
         re.IGNORECASE,
     )
-    for file_path in base_path.iterdir():
-        if month_day_str in file_path.name and file_path.suffix == ".csv":
-            if config.grades_keyword in file_path.name:
-                grades_file = file_path
-            elif file_path.name.startswith(config.missing_keyword) and pattern.match(
-                file_path.name
-            ):
-                missing_file = file_path
+
+    for file_path in base_path.glob(f"*{month_day_str}-{target_year_str}*.csv"):
+        if config.grades_keyword in file_path.name:
+            grades_file = file_path
+        elif file_path.name.startswith(
+            config.missing_keyword
+        ) and missing_pattern.match(file_path.name):
+            missing_file = file_path
 
     if not (grades_file and missing_file):
         logger.error(
-            f"Missing grades or assignments files for date {month_day_str} in {base_path}."
+            f"Missing grades or assignments files for date {month_day_str}-{target_year_str} in {base_path}."
         )
         sys.exit(1)
 
