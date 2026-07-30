@@ -36,6 +36,8 @@ import json
 from datetime import datetime, date, timedelta, time
 from typing import Any, Iterator, cast
 from dateutil.rrule import MO, TU, WE, TH, FR, SA, SU, WEEKLY, rrule, rruleset
+from dateutil.parser import parse as parse_date
+from dateutil.relativedelta import relativedelta
 
 # Configure basic logging for the CLI application
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -56,6 +58,19 @@ DAY_MAP: dict[str, Any] = {
     "Saturday": SA,
     "Sunday": SU,
 }
+
+# Map target date relations to word synonym lists
+RELATION_GROUPS: dict[str, list[str]] = {
+    "next": ["next", "following", "upcoming"],
+    "last": ["last", "previous", "prior", "past"],
+    "this": ["this", "current"],
+}
+
+# Automatically build the lookup groups using dateutil constants as keys
+WEEKDAY_GROUPS: dict[Any, list[str]] = {
+    const: [name.lower()] for name, const in DAY_MAP.items()
+}
+
 
 DEFAULT_CONFIG_TEMPLATE = """[Course]
 prefix = {prefix_val}
@@ -105,7 +120,14 @@ due_in_modules = ["1-5", "f"]
 final_due_time = "12:00 PM"
 final_due_day = "Monday"
 [Course.Assessments.Quizzes.Adjustments]
-# Example: "11-27" = "11-25"
+# Dynamic rules to adjust specific due dates. First column: An
+# existing due date or a module number. Second column: Shifted due
+# date.
+# Examples:
+# "11-27" = "11-25"
+# "4" = "11-25"
+# "11-27" = "next Monday"
+# "3" = "+2 days"
 
 [Course.Assessments.Assignments]
 due_time = "5:00 PM"
@@ -216,6 +238,7 @@ LOCAL_CONFIG_SKELETON = """# Local Course Override Configuration
 # final_due_day = "Monday"
 # [Course.Assessments.<AssessmentName>.Adjustments]
 # "11-27" = "11-25"
+# "3" = "next wednesday"
 
 # [Mail_Merge]
 # headers = [
@@ -764,6 +787,8 @@ class CourseModule:
 class Course:
     """Aggregates CourseModule objects and supports module lookup and iteration."""
 
+    _OFFSET_PATTERN = re.compile(r"^([+-]?\d+)\s*(d|day|days)?$")
+
     def __init__(self, config: AppConfig, year: int) -> None:
         self.config: AppConfig = config
         self.year: int = year
@@ -853,6 +878,126 @@ class Course:
 
         return expanded
 
+    def _resolve_keyword(self, token: str, groups: dict[Any, list[str]]) -> Any:
+        """Dynamically matches a prefix token against grouped full-word synonyms found in groups."""
+        # Strip non-alphabetical characters and lowercase for safer matching
+        token = re.sub(r"[^a-zA-Z]", "", token).lower()
+
+        # Find groups where at least one word starts with `token`
+        matched_groups = {
+            group: [word for word in words if word.startswith(token)]
+            for group, words in groups.items()
+            if any(word.startswith(token) for word in words)
+        }
+
+        if len(matched_groups) == 1:
+            return next(iter(matched_groups.keys()))
+        elif len(matched_groups) == 0:
+            raise ValueError(f"Unrecognized prefix/keyword: '{token}'")
+        else:
+            conflicts = list(matched_groups.keys())
+            raise ValueError(
+                f"Ambiguous token '{token}' matches multiple options: {conflicts}"
+            )
+
+    def _resolve_base_date(
+        self,
+        key: int | str,
+        module_dates: dict[int, datetime],
+        default_year: int | None = None,
+    ) -> datetime:
+        """
+        Determines the reference date for a TOML key.
+        - If key is an int/numeric string (e.g. 3 or "3"), looks up Module N's date.
+        - If key is a date string (e.g. "6/4"), parses it directly as a date.
+        """
+        str_key = str(key).strip()
+
+        # Case A: Key is a Module Number
+        if str_key.isdigit():
+            mod_num = int(str_key)
+            if mod_num not in module_dates:
+                raise KeyError(
+                    f"Module number {mod_num} not found in scheduled course dates."
+                )
+            return module_dates[mod_num]
+
+        # Case B: Key is a Date String (e.g., "6/4", "2026-06-04")
+        try:
+            parsed_dt = parse_date(str_key)
+            if (
+                default_year
+                and parsed_dt.year == datetime.now().year
+                and str(default_year) not in str_key
+            ):
+                parsed_dt = parsed_dt.replace(year=default_year)
+            return parsed_dt
+        except Exception as e:
+            raise ValueError(
+                f"Could not parse key '{key}' as a module ID or date string."
+            ) from e
+
+    def _apply_rule(self, base_dt: datetime, rule_str: str) -> datetime:
+        """
+        Parses and applies a relative rule or exact date string to a base date.
+        Supports:
+          - Relative Offset:  "+3 days", "-1d", "+2"
+          - Relative Weekday: "next Monday", "n mo", "following th", "last fri", "this tu"
+          - Exact Date Override: "06-04", "6/4/2026"
+        """
+        cleaned_rule = rule_str.strip().lower()
+
+        # 1. Check for day offsets (e.g., "+3 days", "-1d", "+2")
+        offset_match = self._OFFSET_PATTERN.match(cleaned_rule)
+        if offset_match:
+            days_delta = int(offset_match.group(1))
+            return base_dt + relativedelta(days=days_delta)
+
+        # 2. Check for relative weekdays (e.g., "next monday", "n mo")
+        tokens = [t for t in cleaned_rule.split() if t not in ("the", "on")]
+        if len(tokens) == 2:
+            try:
+                relation = self._resolve_keyword(tokens[0], RELATION_GROUPS)
+                target_day = self._resolve_keyword(tokens[1], WEEKDAY_GROUPS)
+
+                if relation == "next":
+                    # Jump to next occurrence of target weekday
+                    return base_dt + relativedelta(days=+1, weekday=target_day)
+                elif relation == "last":
+                    # Jump to previous occurrence of target weekday
+                    return base_dt + relativedelta(days=-1, weekday=target_day(-1))
+                elif relation == "this":
+                    # Jump to occurrence of target weekday within the current week
+                    return base_dt + relativedelta(weekday=target_day)
+            except ValueError:
+                pass  # Fall through to exact date parsing if token resolution fails
+
+        # 3. Fallback: Parse as explicit target date string
+        try:
+            parsed_target = parse_date(cleaned_rule)
+            # If the user didn't explicitly type a year (meaning the parser guessed the current year)
+            if (
+                parsed_target.year == datetime.now().year
+                and str(parsed_target.year) not in cleaned_rule
+            ):
+                # Default to the base date's year
+                parsed_target = parsed_target.replace(year=base_dt.year)
+                # Apply Course year-wrap logic centrally
+                parsed_target = self._adjust_year_wrap(parsed_target, base_dt)
+
+            return parsed_target
+        except Exception as e:
+            raise ValueError(
+                f"Unable to parse relative rule or date string: '{rule_str}'"
+            ) from e
+
+    def _resolve_override_date(
+        self, key: int | str, value: str, module_dates: dict[int, datetime]
+    ) -> datetime:
+        """Resolves a TOML key-value pair into a finalized datetime object."""
+        base_dt = self._resolve_base_date(key, module_dates, default_year=self.year)
+        return self._apply_rule(base_dt, value)
+
     def _generate_assessment_dates(
         self,
         assess_type: str,
@@ -861,67 +1006,97 @@ class Course:
         end: datetime,
         exdates: list[datetime],
     ) -> list[datetime]:
-        """Generates the standard weekly recurrence rules for the regular term."""
+        """Generates the standard weekly recurrence rules and processes dynamic overrides."""
         due_day_const = DAY_MAP.get(meta.due_day, FR)
         type_start = start.replace(hour=meta.due_time.hour, minute=meta.due_time.minute)
         type_end = end.replace(hour=meta.due_time.hour, minute=meta.due_time.minute)
 
-        # Process shifted dates and validate them
-        shifted_map: dict[date, date] = {}
-        for orig_str, new_str in meta.shifted_dates.items():
-            try:
-                o_m, o_d = map(int, orig_str.split("-"))
-                o_dt = datetime(self.year, o_m, o_d)
-                if o_dt < start and end.year > self.year:
-                    o_dt = o_dt.replace(year=self.year + 1)
+        # Pre-calculate which raw dates are being targeted by explicit overrides
+        # so we don't accidentally drop them when compiling the base sequence.
+        targeted_base_dates = set()
+        for key in meta.shifted_dates.keys():
+            str_key = str(key).strip()
+            if not str_key.isdigit():
+                try:
+                    parsed_dt = parse_date(str_key)
+                    if (
+                        parsed_dt.year == datetime.now().year
+                        and str(self.year) not in str_key
+                    ):
+                        parsed_dt = parsed_dt.replace(year=self.year)
+                    targeted_base_dates.add(parsed_dt.date())
+                except Exception:
+                    pass
 
-                n_m, n_d = map(int, new_str.split("-"))
-                n_dt = datetime(self.year, n_m, n_d)
-                if n_dt < start and end.year > self.year:
-                    n_dt = n_dt.replace(year=self.year + 1)
-            except ValueError:
-                logger.error(f"Invalid date format in shifted_dates for {assess_type}.")
-                sys.exit(1)
-
-            # Validation 1: Between course start and end dates
-            if not (start.date() <= o_dt.date() <= end.date()):
-                logger.error(
-                    f"Shifted date original key '{orig_str}' for {assess_type} is not within course start and end dates."
-                )
-                sys.exit(1)
-
-            # Validation: Issue a warning if the new shifted value falls on an excluded date
-            if any(ex.date() == n_dt.date() for ex in exdates):
-                logger.warning(
-                    f"Shifted date value '{new_str}' for {assess_type} falls on a globally excluded date."
-                )
-
-            shifted_map[o_dt.date()] = n_dt.date()
-
-        rules: rruleset = rruleset()
+        # 1. Generate base recurring schedule ignoring exclusions for a moment
+        rules = rruleset()
         rules.rrule(
             rrule(WEEKLY, byweekday=due_day_const, dtstart=type_start, until=type_end)
         )
 
-        for ex_dt in exdates:
-            # If an excluded date is being explicitly shifted, we MUST
-            # NOT exclude it from the base sequence, so we maintain
-            # the module count and can intercept it.
-            if ex_dt.date() not in shifted_map:
-                rules.exdate(
-                    ex_dt.replace(hour=meta.due_time.hour, minute=meta.due_time.minute)
+        type_dates: list[datetime] = []
+
+        # 2. Extract specific dates, manually processing exclusions
+        for dt in list(rules):
+            if len(type_dates) == self.config.num_modules:
+                break
+
+            is_exdate = any(ex.date() == dt.date() for ex in exdates)
+            targeted_by_date = dt.date() in targeted_base_dates
+
+            current_mod_index = len(type_dates) + 1
+            targeted_by_mod = str(current_mod_index) in meta.shifted_dates
+
+            # If it's an excluded date and NOT explicitly targeted by an adjustment, skip it
+            if is_exdate and not (targeted_by_date or targeted_by_mod):
+                continue
+
+            type_dates.append(dt)
+
+        # 3. Build mapping of module numbers to calculated dates
+        module_dates = {i + 1: dt for i, dt in enumerate(type_dates)}
+
+        # 4. Resolve and apply all adjustments dynamically
+        for key, rule_str in meta.shifted_dates.items():
+            try:
+                new_dt = self._resolve_override_date(key, rule_str, module_dates)
+
+                # Re-apply the target hour and minute since user strings usually omit them
+                new_dt = new_dt.replace(
+                    hour=meta.due_time.hour, minute=meta.due_time.minute
                 )
 
-        type_dates: list[datetime] = list(rules)[: self.config.num_modules]
+                # Validation 1: Between course start and end dates
+                if not (start.date() <= new_dt.date() <= end.date()):
+                    logger.error(
+                        f"Shifted date value '{new_dt.date()}' for {assess_type} is not within course start and end dates."
+                    )
+                    sys.exit(1)
 
-        # Intercept and modify the specific dates requested
-        for i in range(len(type_dates)):
-            t_date = type_dates[i].date()
-            if t_date in shifted_map:
-                new_d = shifted_map[t_date]
-                type_dates[i] = type_dates[i].replace(
-                    year=new_d.year, month=new_d.month, day=new_d.day
+                # Validation 2: Warn if it lands squarely on a globally excluded date
+                if any(ex.date() == new_dt.date() for ex in exdates):
+                    logger.warning(
+                        f"Shifted date '{new_dt.date()}' for {assess_type} falls on a globally excluded date."
+                    )
+
+                # Assign back to sequence
+                if str(key).strip().isdigit():
+                    mod_idx = int(str(key).strip()) - 1
+                    type_dates[mod_idx] = new_dt
+                else:
+                    base_dt = self._resolve_base_date(
+                        key, module_dates, default_year=self.year
+                    )
+                    for i, current_dt in enumerate(type_dates):
+                        if current_dt.date() == base_dt.date():
+                            type_dates[i] = new_dt
+                            break
+
+            except Exception as e:
+                logger.error(
+                    f"Error processing adjustment '{key} = \"{rule_str}\"' for {assess_type}: {e}"
                 )
+                sys.exit(1)
 
         return type_dates
 

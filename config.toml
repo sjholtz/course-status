@@ -47,10 +47,18 @@ due_in_modules = ["1-5", "f"]
 final_due_time = "12:00 PM"
 final_due_day = "Monday"
 
-# Adjust due dates for Quizzes. Key is original date, value is the new
-# date.
+# Adjust due dates for Quizzes. Key is original date or module number,
+# value is the new date or dynamic offset.
 [Course.Assessments.Quizzes.Adjustments]
 "5-8" = "5-6"
+2 = "5-14"
+"5-22" = "next Monday"
+"4" = "previous wed"
+5 = "this tu"
+6 = "+3 days"
+7 = "-1d"
+8 = "+3"
+9 = "-1"
 
 [Course.Assessments.Assignments]
 due_time = "5:00 PM"

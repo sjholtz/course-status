@@ -10,7 +10,7 @@ def test_appconfig_init(app_config: AppConfig) -> None:
     assert app_config.req_number == "1151"
     assert app_config.num_modules == 14
     assert "Feedback Survey" in app_config.non_academic
-    assert len(app_config.raw_exclude_dates) == 6
+    assert len(app_config.raw_exclude_dates) == 7
     assert len(app_config.headers) > 0
     assert "d.university.edu" == app_config.domain
     assert "Student, Test" in app_config.ignored_students
@@ -49,7 +49,19 @@ def test_due_in_modules_expansion_for_dynamic_assessments(app_config: AppConfig)
 
     quiz_meta = Assessment.get_meta("Quizzes")
     assert quiz_meta is not None
-    assert quiz_meta.due_in_modules == ["1", "2", "3", "4", "5", "f"]
+    assert quiz_meta.due_in_modules == [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "f",
+    ]
 
 
 def test_due_in_modules_hyphen_only_expansion(app_config: AppConfig):

@@ -43,6 +43,7 @@ def mock_config_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     ]
     exclude_dates = [
         "5-19",
+        "7-2",
         "7-9",
         "7-10",
         "7-11",
@@ -61,12 +62,20 @@ def mock_config_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     due_time = "5:00 PM"
     due_day = "Friday"
     too_late_deadline_offset = 14
-    due_in_modules = ["1-5", "f"]
+    due_in_modules = ["1-10", "f"]
     final_due_time = "12:00 PM"
     final_due_day = "Monday"
 
     [Course.Assessments.Quizzes.Adjustments]
     "5-8" = "5-11"
+    2 = "5-14"
+    "5-22" = "next Monday"
+    "4" = "previous wed"
+    5 = "this tu"
+    6 = "+3 days"
+    7 = "-1d"
+    8 = "+3"
+    9 = "-1"
 
     [Course.Assessments.Assignments]
     due_time = "5:00 PM"
@@ -78,7 +87,6 @@ def mock_config_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     final_due_day = "Friday"
 
     [Course.Assessments.Assignments.Adjustments]
-    "5-6" = "5-4"
 
     [Course.Assessments.Geditr]
     due_time = "2:00 AM"
