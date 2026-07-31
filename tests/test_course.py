@@ -271,7 +271,7 @@ def test_module_5_dates_and_assessments(app_config: AppConfig, caplog) -> None:
     assign = mod5.get_assessment("Assignments")
 
     assert quiz is not None
-    assert quiz.due_date == datetime(2026, 6, 9, 17, 0)
+    assert quiz.due_date == datetime(2026, 6, 2, 17, 0)
 
     assert assign is not None
     assert assign.due_date == datetime(2026, 6, 3, 17, 0)

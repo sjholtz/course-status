@@ -106,40 +106,6 @@ exclude_dates = [
     "7-13"
 ]
 
-[Course.Assessments]
-non_academic = [
-    "Feedback Survey",
-    "Introductory Quiz"
-]
-[Course.Assessments.Quizzes]
-due_time = "5:00 PM"
-due_day = "Friday"
-# Days until too late to turn in
-too_late_deadline_offset = 14
-due_in_modules = ["1-5", "f"]
-final_due_time = "12:00 PM"
-final_due_day = "Monday"
-[Course.Assessments.Quizzes.Adjustments]
-# Dynamic rules to adjust specific due dates. First column: An
-# existing due date or a module number. Second column: Shifted due
-# date.
-# Examples:
-# "11-27" = "11-25"
-# "4" = "11-25"
-# "11-27" = "next Monday"
-# "3" = "+2 days"
-
-[Course.Assessments.Assignments]
-due_time = "5:00 PM"
-due_day = "Wednesday"
-# Days until too late to turn in
-too_late_deadline_offset = 14
-# Days until too late to resubmit updated solution
-resubmission_deadline_offset = 21
-due_in_modules = ["1-2", "5-7", "f"]
-final_due_time = "5:00 PM"
-final_due_day = "Friday"
-
 [System]
 base_path = {base_path_val}
 # Keywords used to identify the correct CSV files for a given date
@@ -170,13 +136,7 @@ headers = [
     "Last Module",
     "Current Module",
     "No Work Done",
-    "Nothing Late",
-    "Quiz Late",
-    "Quiz Late Date",
-    "Assign Late",
-    "Assign Late Date",
-    "Resubmit",
-    "Resubmit Date"
+    "Nothing Late"
 ]
 date_format = "%-I:%M %p on %A %-d %B %Y"
 """
@@ -196,49 +156,67 @@ LOCAL_CONFIG_SKELETON = """# Local Course Override Configuration
 # WARNING: 'base_path', 'prefix', and 'numbers' are omitted here and
 # MUST NOT be overridden here.
 
-# [Course]
+[Course]
 # first_assess_code = "Q1a"
 # number_of_modules = 14
-# # Exact names or substrings in the Canvas Grades export 'Name'
+
+# # Exact names or substrings of names in the Grades export 'Name'
 # # column to ignore
 # ignored_students = [
 #     "Student, Test",
 #     "Test Student"
 # ]
 
-# [Course.Assessments]
+# This section MUST BE FILLED OUT FOR THIS COURSE!!!
+[Course.Assessments]
+# # A substring of an assessment title that is not part of a
+# # a student's course grade and should be ignored
 # non_academic = [
 #     "Feedback Survey",
 #     "Introductory Quiz"
 # ]
-
-# # The category and its keys below can repeat for other assessment
-# # names: Exams, Quizzes, Labs, Discussions—Anything that is worth
-# # points and has a due date/time.
 #
-# [Course.Assessments.<AssessmentName>]
+# # The assessment type dictionary. Replace <AssessmentName> with
+# # "Quizzes", "Exams", "Labs", "Discussions", anything that is
+# # graded. This dictionary, its keys and the "Adjustments"
+# # sub-dictionary below must be repeated for all other assessment
+# # types in this course: Exams, Quizzes, Labs, Discussions—Anything
+# # that is worth points and has a due date/time.
+#
+# [Course.Assessments.<AssessmentName>] # Uncomment after editing <AssessmentName>
 # due_time = "5:00 PM"
 # due_day = "Friday"
-# Examples of module specification
+#
+# # Example usage of "which module(s) is/are this assessment due in?"
+# # Uncomment and edit as needed only one of these per assessment type
 # due_in_modules = ["1-5", "f"] # Modules 1-5 and finals week
 # due_in_modules = ["-2", "5-7"] # Modules 1, 2, 5, 6, 7
 # due_in_modules = ["2-"] # Modules 2 through end except for finals week
 # due_in_modules = ["2-f"] # Modules 2 through end and finals week
 # due_in_modules = ["-"] # All modules except for finals week
-# # Days until too late to turn in—Omit for assessment that has no
-# # late submission date
+#
+# # Days until too late to turn in—Omit (leave commented) for an
+# # assessment that has no late submission deadline date
 # too_late_deadline_offset = 14
-# # Days until too late to resubmit updated solution—Omit for
+# # Days until too late to resubmit an updated solution—Omit for
 # # assessment that cannot be resubmitted
 # resubmission_deadline_offset = 21
 # # Only supply the keys below for assessments that are due during
-# # finals week, i.e. they have an "f" in their 'due_in_module' key
+# # finals week, i.e. they have an "f" in their 'due_in_modules' key
 # # above
 # final_due_time = "12:00 PM"
 # final_due_day = "Monday"
+#
 # [Course.Assessments.<AssessmentName>.Adjustments]
-# "11-27" = "11-25"
-# "3" = "next wednesday"
+# "9-27" = "11-25" # Date key
+# "3" = "11-25"    # Module number (str or int) key
+# "10-7" = "next Monday"
+# 4 = "n m" # Next Monday - unique prefixes are sufficient
+# 5 = "previous Friday"
+# 6 = "+2 days"
+# 7 = "+4d" #
+# 8 = "-3"  # days is implied
+# 9 = "this tu" # 'this' stays in current week
 
 # [Mail_Merge]
 # headers = [
@@ -968,7 +946,12 @@ class Course:
                     return base_dt + relativedelta(days=-1, weekday=target_day(-1))
                 elif relation == "this":
                     # Jump to occurrence of target weekday within the current week
-                    return base_dt + relativedelta(weekday=target_day)
+                    if (
+                        target_day.weekday - base_dt.weekday() >= 0
+                    ):  # Move forward in this week
+                        return base_dt + relativedelta(weekday=target_day)
+                    else:  # Move backward in this week
+                        return base_dt + relativedelta(weeks=-1, weekday=target_day)
             except ValueError:
                 pass  # Fall through to exact date parsing if token resolution fails
 
