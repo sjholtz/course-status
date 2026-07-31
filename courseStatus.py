@@ -138,6 +138,11 @@ headers = [
     "No Work Done",
     "Nothing Late"
 ]
+assessment_too_late_header_suffix = "Late"
+assessment_too_late_date_header_suffix = "Late Date"
+assessment_resubmit_header_suffix = "Resubmit"
+assessment_resubmit_date_header_suffix = "Resubmit Date"
+
 date_format = "%-I:%M %p on %A %-d %B %Y"
 """
 
@@ -232,6 +237,10 @@ LOCAL_CONFIG_SKELETON = """# Local Course Override Configuration
 #     "No Work Done",
 #     "Nothing Late"
 # ]
+# assessment_too_late_header_suffix = "Late"
+# assessment_too_late_date_header_suffix = "Late Date"
+# assessment_resubmit_header_suffix = "Resubmit"
+# assessment_resubmit_date_header_suffix = "Resubmit Date"
 """
 
 
@@ -1524,6 +1533,10 @@ def main() -> None:
 
     today_date: datetime = datetime.now()
     month_day_str: str = args.date if args.date else today_date.strftime("%m-%d")
+    # Replace a slash with a hyphen if present in month_day_str
+    month_day_str = (
+        month_day_str.replace("/", "-") if "/" in month_day_str else month_day_str
+    )
 
     try:
         as_of_date = datetime.strptime(f"{month_day_str}-{today_date.year}", "%m-%d-%Y")
@@ -1549,7 +1562,22 @@ def main() -> None:
         re.IGNORECASE,
     )
 
-    for file_path in base_path.glob(f"*{month_day_str}-{target_year_str}*.csv"):
+    mon_int, day_int = map(int, month_day_str.split("-"))
+
+    mon = {str(mon_int), f"{mon_int:02d}"}
+    day = {str(day_int), f"{day_int:02d}"}
+
+    file_patterns: list[str] = []
+    for m in mon:
+        for d in day:
+            file_patterns.append(f"*{m}-{d}-{target_year_str}*.csv")
+            file_patterns.append(f"*{target_year_str}-{m}-{d}*.csv")
+
+    files: set[pathlib.Path] = set()
+    for pat in file_patterns:
+        files |= set(base_path.glob(pat))
+
+    for file_path in files:
         if config.grades_keyword in file_path.name:
             grades_file = file_path
         elif file_path.name.startswith(
