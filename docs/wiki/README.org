@@ -1,0 +1,15 @@
+#+title: Course Status — Wiki Index
+
+This wiki collects documentation, configuration guidance, and operational notes for the course-status tool (courseStatus.py).
+
+Pages
+- [[./Getting-Started.org][Getting Started]]
+- [[./Config-Guidance.org][Configuration details]]
+- [[./Canvas-Codes.org][Canvas item codes and conventions]]
+- [[./Migration-Plan.org][Migration plan: move comments out of TOML]]
+- [[./Using-Emacs-Org-Mode.org][Using Emacs Org mode for this wiki]]
+
+How to use this wiki
+- Author in Org mode here in docs/wiki/*.org.
+- Export to Markdown (recommended) and publish to either the GitHub wiki or GitHub Pages.
+- See "Using Emacs Org Mode" for automated export steps.
